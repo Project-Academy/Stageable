@@ -22,18 +22,19 @@ import UIKit
 ///     ]
 /// }
 /// ```
+@MainActor
 public struct Prop {
     /// The view that will be animated on/off screen.
-    let view: UIView
+    public let view: UIView
     /// The edge the view slides from. Mutually exclusive with ``transform``.
-    let direction: Direction?
+    public let direction: Direction?
     /// A custom off-screen transform. Mutually exclusive with ``direction``.
-    let transform: CGAffineTransform?
+    public let transform: CGAffineTransform?
     /// Seconds to wait before this prop's animation starts, creating a stagger effect.
-    let delay: TimeInterval
+    public let delay: TimeInterval
 
     /// A screen edge (or corner) that a ``Prop`` slides in from and out toward.
-    enum Direction {
+    public enum Direction {
         case top, bottom, left, right
         case topLeft, topRight, bottomLeft, bottomRight
     }
@@ -43,7 +44,7 @@ public struct Prop {
     ///   - view: The view to animate.
     ///   - direction: The edge the view enters from.
     ///   - delay: Stagger delay in seconds. Defaults to `0`.
-    init(_ view: UIView, from direction: Direction, delay: TimeInterval = 0) {
+    public init(_ view: UIView, from direction: Direction, delay: TimeInterval = 0) {
         self.view = view
         self.direction = direction
         self.transform = nil
@@ -55,7 +56,7 @@ public struct Prop {
     ///   - view: The view to animate.
     ///   - transform: The transform applied when the view is off-screen.
     ///   - delay: Stagger delay in seconds. Defaults to `0`.
-    init(_ view: UIView, transform: CGAffineTransform, delay: TimeInterval = 0) {
+    public init(_ view: UIView, transform: CGAffineTransform, delay: TimeInterval = 0) {
         self.view = view
         self.direction = nil
         self.transform = transform
@@ -64,7 +65,7 @@ public struct Prop {
 
     /// Returns the transform that places this view off-screen,
     /// calculated from the view's current frame and the screen bounds.
-    @MainActor func offScreenTransform() -> CGAffineTransform {
+    public func offScreenTransform() -> CGAffineTransform {
         if let transform { return transform }
         guard let direction else { return .identity }
 

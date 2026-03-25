@@ -11,7 +11,7 @@ import UIKit
 /// animating their ``Prop``s on and off screen with staggered spring transitions.
 ///
 /// `StageVC` replaces `UINavigationController` with a theatrical metaphor:
-/// child view controllers are *actors* whose UI elements (*props*) slide on
+/// child view controllers are *sets* whose UI elements (*props*) slide on
 /// from the wings. The container owns all animation timing — children only
 /// declare *what* moves and *where from*.
 ///
@@ -25,7 +25,7 @@ import UIKit
 /// | ``pop()`` | Animate out the top VC, return to the one below it. |
 /// | ``popToRoot()`` | Return to the first VC in the stack. |
 /// | ``setRoot(_:)`` | Replace the entire stack with a single new root. |
-public class StageVC: UIViewController {
+open class StageVC: UIViewController {
 
     //--------------------------------------
     // MARK: - VARIABLES -
