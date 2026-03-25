@@ -24,7 +24,7 @@ import UIKit
 ///     }
 /// }
 /// ```
-protocol Stageable: UIViewController {
+public protocol Stageable: UIViewController {
     /// The views that participate in stage entrance/exit animations.
     var props: [Prop] { get }
     /// Called just before entrance animations begin. Use this to configure
@@ -34,7 +34,7 @@ protocol Stageable: UIViewController {
     func didFinishEntrance()
 }
 
-extension Stageable {
+public extension Stageable {
     func prepareForEntrance() { }
     func didFinishEntrance() { }
 

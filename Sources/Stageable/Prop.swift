@@ -22,7 +22,7 @@ import UIKit
 ///     ]
 /// }
 /// ```
-struct Prop {
+public struct Prop {
     /// The view that will be animated on/off screen.
     let view: UIView
     /// The edge the view slides from. Mutually exclusive with ``transform``.
@@ -64,7 +64,7 @@ struct Prop {
 
     /// Returns the transform that places this view off-screen,
     /// calculated from the view's current frame and the screen bounds.
-    func offScreenTransform() -> CGAffineTransform {
+    @MainActor func offScreenTransform() -> CGAffineTransform {
         if let transform { return transform }
         guard let direction else { return .identity }
 

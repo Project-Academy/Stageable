@@ -25,7 +25,7 @@ import UIKit
 /// | ``pop()`` | Animate out the top VC, return to the one below it. |
 /// | ``popToRoot()`` | Return to the first VC in the stack. |
 /// | ``setRoot(_:)`` | Replace the entire stack with a single new root. |
-class StageVC: UIViewController {
+public class StageVC: UIViewController {
 
     //--------------------------------------
     // MARK: - VARIABLES -
