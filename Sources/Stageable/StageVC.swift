@@ -107,7 +107,7 @@ open class StageVC: UIViewController {
     ///
     /// All existing view controllers are removed. If the stack is empty the
     /// incoming VC is installed immediately without an exit animation.
-    func setRoot(_ incoming: Stageable) {
+    public func setRoot(_ incoming: Stageable) {
         guard !isTransitioning else { return }
         guard let outgoing = stack.last else {
             installFirst(incoming)
