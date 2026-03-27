@@ -32,6 +32,13 @@ open class StageVC: UIViewController {
     //--------------------------------------
     private var stack: [Stageable] = []
     private var isTransitioning = false
+    open var props: [Prop] = []
+
+    //--------------------------------------
+    // MARK: - TRANSITIONS -
+    //--------------------------------------
+    open func vcWillTransition() { }
+    open func vcDidTransition() { }
 
     //--------------------------------------
     // MARK: - NAVIGATION -
@@ -49,6 +56,7 @@ open class StageVC: UIViewController {
             return
         }
         isTransitioning = true
+        vcWillTransition()
         animateOut(outgoing) { [weak self] in
             guard let self else { return }
             outgoing.view.removeFromSuperview()
@@ -57,6 +65,7 @@ open class StageVC: UIViewController {
             self.stack.append(incoming)
             self.animateIn(incoming) {
                 self.isTransitioning = false
+                self.vcDidTransition()
             }
         }
     }
@@ -69,6 +78,7 @@ open class StageVC: UIViewController {
         let outgoing = stack[stack.count - 1]
         let incoming = stack[stack.count - 2]
         isTransitioning = true
+        vcWillTransition()
         animateOut(outgoing) { [weak self] in
             guard let self else { return }
             outgoing.view.removeFromSuperview()
@@ -77,6 +87,7 @@ open class StageVC: UIViewController {
             self.stack.removeLast()
             self.animateIn(incoming) {
                 self.isTransitioning = false
+                self.vcDidTransition()
             }
         }
     }
@@ -89,6 +100,7 @@ open class StageVC: UIViewController {
         let outgoing = stack[stack.count - 1]
         let root = stack[0]
         isTransitioning = true
+        vcWillTransition()
         animateOut(outgoing) { [weak self] in
             guard let self else { return }
             for vc in self.stack.dropFirst() {
@@ -99,6 +111,7 @@ open class StageVC: UIViewController {
             self.stack = [root]
             self.animateIn(root) {
                 self.isTransitioning = false
+                self.vcDidTransition()
             }
         }
     }
@@ -115,6 +128,7 @@ open class StageVC: UIViewController {
             return
         }
         isTransitioning = true
+        vcWillTransition()
         animateOut(outgoing) { [weak self] in
             guard let self else { return }
             for vc in self.stack {
@@ -125,6 +139,7 @@ open class StageVC: UIViewController {
             self.stack = [incoming]
             self.animateIn(incoming) {
                 self.isTransitioning = false
+                self.vcDidTransition()
             }
         }
     }
@@ -141,24 +156,26 @@ open class StageVC: UIViewController {
 
         vc.prepareForEntrance()
         vc.view.layoutIfNeeded()
-        for prop in vc.props {
+        vcWillTransition()
+        let allProps = vc.props + self.props
+        for prop in allProps {
             prop.view.transform = prop.offScreenTransform()
         }
 
         let inDuration: TimeInterval = 0.45
-        let props = vc.props
 
-        if props.isEmpty {
+        if allProps.isEmpty {
             vc.didMove(toParent: self)
             vc.didFinishEntrance()
+            vcDidTransition()
             return
         }
 
-        let lastIndex = props.enumerated()
+        let lastIndex = allProps.enumerated()
             .max(by: { $0.element.delay < $1.element.delay })!
             .offset
 
-        for (i, prop) in props.enumerated() {
+        for (i, prop) in allProps.enumerated() {
             let animator = UIViewPropertyAnimator(
                 duration: inDuration,
                 timingParameters: UISpringTimingParameters(duration: inDuration, bounce: 0.1, initialVelocity: .zero)
@@ -169,6 +186,7 @@ open class StageVC: UIViewController {
                     guard let self, let vc else { return }
                     vc.didMove(toParent: self)
                     vc.didFinishEntrance()
+                    self.vcDidTransition()
                 }
             }
             animator.startAnimation(afterDelay: prop.delay)
@@ -177,15 +195,15 @@ open class StageVC: UIViewController {
 
     private func animateOut(_ vc: Stageable, completion: @escaping () -> Void) {
         let outDuration: TimeInterval = 0.35
-        let props = vc.props
+        let allProps = vc.props + self.props
 
-        if props.isEmpty {
+        if allProps.isEmpty {
             completion()
             return
         }
 
         var completedCount = 0
-        for prop in props {
+        for prop in allProps {
             let animator = UIViewPropertyAnimator(
                 duration: outDuration,
                 timingParameters: UISpringTimingParameters(duration: outDuration, bounce: 0, initialVelocity: .zero)
@@ -193,7 +211,7 @@ open class StageVC: UIViewController {
             animator.addAnimations { prop.view.transform = prop.offScreenTransform() }
             animator.addCompletion { _ in
                 completedCount += 1
-                if completedCount == props.count {
+                if completedCount == allProps.count {
                     completion()
                 }
             }
@@ -210,30 +228,30 @@ open class StageVC: UIViewController {
         }
         view.addSubview(vc.view)
 
-        for prop in vc.props {
+        let allProps = vc.props + self.props
+        for prop in allProps {
             prop.view.transform = .identity
         }
         vc.prepareForEntrance()
         vc.view.layoutIfNeeded()
-        for prop in vc.props {
+        for prop in allProps {
             prop.view.transform = prop.offScreenTransform()
         }
 
         let inDuration: TimeInterval = 0.45
-        let props = vc.props
 
-        if props.isEmpty {
+        if allProps.isEmpty {
             vc.didMove(toParent: self)
             vc.didFinishEntrance()
             completion()
             return
         }
 
-        let lastIndex = props.enumerated()
+        let lastIndex = allProps.enumerated()
             .max(by: { $0.element.delay < $1.element.delay })!
             .offset
 
-        for (i, prop) in props.enumerated() {
+        for (i, prop) in allProps.enumerated() {
             let animator = UIViewPropertyAnimator(
                 duration: inDuration,
                 timingParameters: UISpringTimingParameters(duration: inDuration, bounce: 0.1, initialVelocity: .zero)
