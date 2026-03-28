@@ -7,24 +7,26 @@
 
 import UIKit
 
-/// A container view controller that manages a stack of ``Stageable`` children,
-/// animating their ``Prop``s on and off screen with staggered spring transitions.
-///
-/// `StageVC` replaces `UINavigationController` with a theatrical metaphor:
-/// child view controllers are *sets* whose UI elements (*props*) slide on
-/// from the wings. The container owns all animation timing — children only
-/// declare *what* moves and *where from*.
-///
-/// Subclass `StageVC` to add app-specific chrome (backgrounds, status bar
-/// preferences, launch routing, etc.).
-///
-/// ## Navigation API
-/// | Method | Behaviour |
-/// |---|---|
-/// | ``push(_:)`` | Animate out the current VC, push a new one onto the stack. |
-/// | ``pop()`` | Animate out the top VC, return to the one below it. |
-/// | ``popToRoot()`` | Return to the first VC in the stack. |
-/// | ``setRoot(_:)`` | Replace the entire stack with a single new root. |
+/**
+ A container view controller that manages a stack of ``Stageable`` children,
+ animating their ``Prop``s on and off screen with staggered spring transitions.
+
+ `StageVC` replaces `UINavigationController` with a theatrical metaphor:
+ child view controllers are *sets* whose UI elements (*props*) slide on
+ from the wings. The container owns all animation timing — children only
+ declare *what* moves and *where from*.
+
+ Subclass `StageVC` to add app-specific chrome (backgrounds, status bar
+ preferences, launch routing, etc.).
+
+ ## Navigation API
+ | Method | Behaviour |
+ |---|---|
+ | ``push(_:)`` | Animate out the current VC, push a new one onto the stack. |
+ | ``pop()`` | Animate out the top VC, return to the one below it. |
+ | ``popToRoot()`` | Return to the first VC in the stack. |
+ | ``setRoot(_:)`` | Replace the entire stack with a single new root. |
+ */
 open class StageVC: UIViewController {
 
     //--------------------------------------
@@ -32,22 +34,44 @@ open class StageVC: UIViewController {
     //--------------------------------------
     private var stack: [Stageable] = []
     private var isTransitioning = false
+    /**
+     Props owned by the container itself — animated on every transition alongside the child's props.
+     Use these for persistent chrome (e.g. a tab bar or navigation overlay) that should move with each scene change.
+     */
     open var props: [Prop] = []
 
     //--------------------------------------
     // MARK: - TRANSITIONS -
     //--------------------------------------
-    open func vcWillTransition() { }
-    open func vcDidTransition() { }
+
+    /**
+     Called just before the outgoing view controller's props begin their exit animation.
+     Override to prepare any container-level state that depends on which VC is leaving.
+     */
+    open func vcWillTransition(from outgoing: Stageable) {}
+
+    /**
+     Called just before the incoming view controller's props begin their entrance animation.
+     Override to prepare any container-level state that depends on which VC is arriving.
+     */
+    open func vcWillTransition(to incoming: Stageable) {}
+
+    /**
+     Called after all entrance animations for the incoming view controller have completed.
+     Override to perform any post-transition cleanup or state updates.
+     */
+    open func vcDidTransition() {}
 
     //--------------------------------------
     // MARK: - NAVIGATION -
     //--------------------------------------
 
-    /// Pushes a new ``Stageable`` view controller onto the stack.
-    ///
-    /// The current top VC's props animate off-screen, then the incoming VC's
-    /// props animate in. Calls are ignored while a transition is in progress.
+    /**
+     Pushes a new ``Stageable`` view controller onto the stack.
+
+     The current top VC's props animate off-screen, then the incoming VC's
+     props animate in. Calls are ignored while a transition is in progress.
+     */
     func push(_ incoming: Stageable) {
         guard !isTransitioning else { return }
         guard let outgoing = stack.last else {
@@ -56,13 +80,14 @@ open class StageVC: UIViewController {
             return
         }
         isTransitioning = true
-        vcWillTransition()
+        vcWillTransition(from: outgoing)
         animateOut(outgoing) { [weak self] in
             guard let self else { return }
             outgoing.view.removeFromSuperview()
             outgoing.willMove(toParent: nil)
             outgoing.removeFromParent()
             self.stack.append(incoming)
+            vcWillTransition(to: incoming)
             self.animateIn(incoming) {
                 self.isTransitioning = false
                 self.vcDidTransition()
@@ -70,21 +95,24 @@ open class StageVC: UIViewController {
         }
     }
 
-    /// Pops the top view controller off the stack and returns to the previous one.
-    ///
-    /// Requires at least two view controllers on the stack. Ignored during a transition.
+    /**
+     Pops the top view controller off the stack and returns to the previous one.
+
+     Requires at least two view controllers on the stack. Ignored during a transition.
+     */
     func pop() {
         guard !isTransitioning, stack.count >= 2 else { return }
         let outgoing = stack[stack.count - 1]
         let incoming = stack[stack.count - 2]
         isTransitioning = true
-        vcWillTransition()
+        vcWillTransition(from: outgoing)
         animateOut(outgoing) { [weak self] in
             guard let self else { return }
             outgoing.view.removeFromSuperview()
             outgoing.willMove(toParent: nil)
             outgoing.removeFromParent()
             self.stack.removeLast()
+            vcWillTransition(to: incoming)
             self.animateIn(incoming) {
                 self.isTransitioning = false
                 self.vcDidTransition()
@@ -92,15 +120,17 @@ open class StageVC: UIViewController {
         }
     }
 
-    /// Pops all view controllers above the root and returns to it.
-    ///
-    /// All intermediate view controllers are removed from the parent. Ignored during a transition.
+    /**
+     Pops all view controllers above the root and returns to it.
+
+     All intermediate view controllers are removed from the parent. Ignored during a transition.
+     */
     func popToRoot() {
         guard !isTransitioning, stack.count > 1 else { return }
         let outgoing = stack[stack.count - 1]
         let root = stack[0]
         isTransitioning = true
-        vcWillTransition()
+        vcWillTransition(from: outgoing)
         animateOut(outgoing) { [weak self] in
             guard let self else { return }
             for vc in self.stack.dropFirst() {
@@ -109,6 +139,7 @@ open class StageVC: UIViewController {
                 vc.removeFromParent()
             }
             self.stack = [root]
+            vcWillTransition(to: root)
             self.animateIn(root) {
                 self.isTransitioning = false
                 self.vcDidTransition()
@@ -116,10 +147,12 @@ open class StageVC: UIViewController {
         }
     }
 
-    /// Replaces the entire stack with a single new root view controller.
-    ///
-    /// All existing view controllers are removed. If the stack is empty the
-    /// incoming VC is installed immediately without an exit animation.
+    /**
+     Replaces the entire stack with a single new root view controller.
+
+     All existing view controllers are removed. If the stack is empty the
+     incoming VC is installed immediately without an exit animation.
+     */
     public func setRoot(_ incoming: Stageable) {
         guard !isTransitioning else { return }
         guard let outgoing = stack.last else {
@@ -128,7 +161,7 @@ open class StageVC: UIViewController {
             return
         }
         isTransitioning = true
-        vcWillTransition()
+        vcWillTransition(from: outgoing)
         animateOut(outgoing) { [weak self] in
             guard let self else { return }
             for vc in self.stack {
@@ -137,6 +170,7 @@ open class StageVC: UIViewController {
                 vc.removeFromParent()
             }
             self.stack = [incoming]
+            vcWillTransition(to: incoming)
             self.animateIn(incoming) {
                 self.isTransitioning = false
                 self.vcDidTransition()
@@ -147,7 +181,13 @@ open class StageVC: UIViewController {
     //--------------------------------------
     // MARK: - ANIMATION ENGINE -
     //--------------------------------------
+    /**
+     Installs the first view controller onto an empty stage without an exit animation.
 
+     Sets up the VC's view, calls ``prepareForEntrance()``, then animates all props (including
+     the container's own) to their on-screen positions using staggered spring animations.
+     Completion fires `didMove(toParent:)`, ``didFinishEntrance()``, and ``vcDidTransition()``.
+     */
     private func installFirst(_ vc: Stageable) {
         vc.view.frame = view.bounds
         vc.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -156,7 +196,7 @@ open class StageVC: UIViewController {
 
         vc.prepareForEntrance()
         vc.view.layoutIfNeeded()
-        vcWillTransition()
+        vcWillTransition(to: vc)
         let allProps = vc.props + self.props
         for prop in allProps {
             prop.view.transform = prop.offScreenTransform()
@@ -193,6 +233,12 @@ open class StageVC: UIViewController {
         }
     }
 
+    /**
+     Animates all props of `vc` (plus the container's own) to their off-screen transforms.
+
+     Invokes `completion` once every prop's animator has finished. If there are no props,
+     `completion` is called synchronously.
+     */
     private func animateOut(_ vc: Stageable, completion: @escaping () -> Void) {
         let outDuration: TimeInterval = 0.35
         let allProps = vc.props + self.props
@@ -219,6 +265,13 @@ open class StageVC: UIViewController {
         }
     }
 
+    /**
+     Adds `vc`'s view to the hierarchy and animates its props (plus the container's own) on-screen.
+
+     Calls ``prepareForEntrance()`` before beginning the animations, and fires `didMove(toParent:)`,
+     ``didFinishEntrance()``, and `completion` via the last animator's completion handler.
+     If there are no props, those callbacks fire synchronously.
+     */
     private func animateIn(_ vc: Stageable, completion: @escaping () -> Void) {
         vc.view.frame = view.bounds
         vc.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]

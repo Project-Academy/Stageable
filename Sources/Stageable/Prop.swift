@@ -7,21 +7,23 @@
 
 import UIKit
 
-/// A declarative description of how a single view enters and exits the stage.
-///
-/// Each ``Stageable`` view controller returns an array of `Prop`s. The ``StageVC``
-/// animation engine uses them to choreograph entrance and exit transitions — sliding
-/// views on from a screen edge or applying a custom off-screen transform.
-///
-/// ```swift
-/// var props: [Prop] {
-///     [
-///         Prop(titleLabel, from: .top),
-///         Prop(cardView,   from: .bottom, delay: 0.05),
-///         Prop(avatar,     transform: .init(scaleX: 0, y: 0), delay: 0.1)
-///     ]
-/// }
-/// ```
+/**
+ A declarative description of how a single view enters and exits the stage.
+
+ Each ``Stageable`` view controller returns an array of `Prop`s. The ``StageVC``
+ animation engine uses them to choreograph entrance and exit transitions — sliding
+ views on from a screen edge or applying a custom off-screen transform.
+
+ ```swift
+ var props: [Prop] {
+     [
+         Prop(titleLabel, from: .top),
+         Prop(cardView,   from: .bottom, delay: 0.05),
+         Prop(avatar,     transform: .init(scaleX: 0, y: 0), delay: 0.1)
+     ]
+ }
+ ```
+ */
 @MainActor
 public struct Prop {
     /// The view that will be animated on/off screen.
@@ -39,11 +41,13 @@ public struct Prop {
         case topLeft, topRight, bottomLeft, bottomRight
     }
 
-    /// Creates a prop that slides in from a screen edge.
-    /// - Parameters:
-    ///   - view: The view to animate.
-    ///   - direction: The edge the view enters from.
-    ///   - delay: Stagger delay in seconds. Defaults to `0`.
+    /**
+     Creates a prop that slides in from a screen edge.
+     - Parameters:
+       - view: The view to animate.
+       - direction: The edge the view enters from.
+       - delay: Stagger delay in seconds. Defaults to `0`.
+     */
     public init(_ view: UIView, from direction: Direction, delay: TimeInterval = 0) {
         self.view = view
         self.direction = direction
@@ -51,11 +55,13 @@ public struct Prop {
         self.delay = delay
     }
 
-    /// Creates a prop with a custom off-screen transform (e.g. scale-to-zero).
-    /// - Parameters:
-    ///   - view: The view to animate.
-    ///   - transform: The transform applied when the view is off-screen.
-    ///   - delay: Stagger delay in seconds. Defaults to `0`.
+    /**
+     Creates a prop with a custom off-screen transform (e.g. scale-to-zero).
+     - Parameters:
+       - view: The view to animate.
+       - transform: The transform applied when the view is off-screen.
+       - delay: Stagger delay in seconds. Defaults to `0`.
+     */
     public init(_ view: UIView, transform: CGAffineTransform, delay: TimeInterval = 0) {
         self.view = view
         self.direction = nil
@@ -63,8 +69,10 @@ public struct Prop {
         self.delay = delay
     }
 
-    /// Returns the transform that places this view off-screen,
-    /// calculated from the view's current frame and the screen bounds.
+    /**
+     Returns the transform that places this view off-screen,
+     calculated from the view's current frame and the screen bounds.
+     */
     public func offScreenTransform() -> CGAffineTransform {
         if let transform { return transform }
         guard let direction else { return .identity }

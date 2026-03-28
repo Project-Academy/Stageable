@@ -7,28 +7,32 @@
 
 import UIKit
 
-/// A view controller that can be managed by a ``StageVC``.
-///
-/// Conforming types declare their animated elements via ``props`` and
-/// optionally hook into ``prepareForEntrance()`` and ``didFinishEntrance()``
-/// for setup/teardown around transitions.
-///
-/// Navigation convenience methods (``push(_:)``, ``pop()``, ``popToRoot()``)
-/// are provided automatically through the default extension.
-///
-/// ```swift
-/// extension MyVC: Stageable {
-///     var props: [Prop] {
-///         [Prop(headerView, from: .top),
-///          Prop(contentView, from: .bottom, delay: 0.05)]
-///     }
-/// }
-/// ```
+/**
+ A view controller that can be managed by a ``StageVC``.
+
+ Conforming types declare their animated elements via ``props`` and
+ optionally hook into ``prepareForEntrance()`` and ``didFinishEntrance()``
+ for setup/teardown around transitions.
+
+ Navigation convenience methods (``push(_:)``, ``pop()``, ``popToRoot()``)
+ are provided automatically through the default extension.
+
+ ```swift
+ extension MyVC: Stageable {
+     var props: [Prop] {
+         [Prop(headerView, from: .top),
+          Prop(contentView, from: .bottom, delay: 0.05)]
+     }
+ }
+ ```
+ */
 public protocol Stageable: UIViewController {
     /// The views that participate in stage entrance/exit animations.
     var props: [Prop] { get }
-    /// Called just before entrance animations begin. Use this to configure
-    /// initial layout or state that the animation depends on.
+    /**
+     Called just before entrance animations begin. Use this to configure
+     initial layout or state that the animation depends on.
+     */
     func prepareForEntrance()
     /// Called after all entrance animations have completed.
     func didFinishEntrance()
