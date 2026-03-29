@@ -286,6 +286,9 @@ open class StageVC: UIViewController {
             prop.view.transform = .identity
         }
         vc.prepareForEntrance()
+     	for prop in self.props { 
+			view.bringSubviewToFront(prop.view)
+		}
         vc.view.layoutIfNeeded()
         for prop in allProps {
             prop.view.transform = prop.offScreenTransform()
