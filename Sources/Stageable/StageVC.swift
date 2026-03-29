@@ -311,7 +311,12 @@ open class StageVC: UIViewController {
                 duration: inDuration,
                 timingParameters: UISpringTimingParameters(duration: inDuration, bounce: 0.1, initialVelocity: .zero)
             )
-            animator.addAnimations { prop.view.transform = .identity }
+            animator.addAnimations { 
+             for prop_ in self.props { 
+         view.bringSubviewToFront(prop_.view)
+        }
+                                    prop.view.transform = .identity 
+            }
             if i == lastIndex {
                 animator.addCompletion { [weak self, weak vc] _ in
                     guard let self, let vc else { return }
