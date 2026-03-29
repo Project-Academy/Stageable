@@ -299,7 +299,9 @@ open class StageVC: UIViewController {
             completion()
             return
         }
-
+        for prop in props { 
+         view.bringSubviewToFront(prop.view)
+        }
         let lastIndex = allProps.enumerated()
             .max(by: { $0.element.delay < $1.element.delay })!
             .offset
