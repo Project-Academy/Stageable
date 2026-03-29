@@ -299,9 +299,7 @@ open class StageVC: UIViewController {
             completion()
             return
         }
-        for prop in props { 
-         view.bringSubviewToFront(prop.view)
-        }
+     
         let lastIndex = allProps.enumerated()
             .max(by: { $0.element.delay < $1.element.delay })!
             .offset
@@ -311,12 +309,7 @@ open class StageVC: UIViewController {
                 duration: inDuration,
                 timingParameters: UISpringTimingParameters(duration: inDuration, bounce: 0.1, initialVelocity: .zero)
             )
-            animator.addAnimations { 
-             for prop_ in self.props { 
-         self.view.bringSubviewToFront(prop_.view)
-        } 
-                                    prop.view.transform = .identity 
-            }
+            animator.addAnimations {  prop.view.transform = .identity }
             if i == lastIndex {
                 animator.addCompletion { [weak self, weak vc] _ in
                     guard let self, let vc else { return }
