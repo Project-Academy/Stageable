@@ -286,7 +286,6 @@ open class StageVC: UIViewController {
             prop.view.transform = .identity
         }
         vc.prepareForEntrance()
-     	
         vc.view.layoutIfNeeded()
         for prop in allProps {
             prop.view.transform = prop.offScreenTransform()
@@ -310,12 +309,7 @@ open class StageVC: UIViewController {
                 duration: inDuration,
                 timingParameters: UISpringTimingParameters(duration: inDuration, bounce: 0.1, initialVelocity: .zero)
             )
-            animator.addAnimations {  
-				prop.view.transform = .identity 
-				for prop in self.props { 
-					self.view.bringSubviewToFront(prop.view)
-				}
-			}
+            animator.addAnimations { prop.view.transform = .identity }
             if i == lastIndex {
                 animator.addCompletion { [weak self, weak vc] _ in
                     guard let self, let vc else { return }
