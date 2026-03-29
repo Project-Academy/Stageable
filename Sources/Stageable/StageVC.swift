@@ -313,7 +313,7 @@ open class StageVC: UIViewController {
             animator.addAnimations {  
 				prop.view.transform = .identity 
 				for prop in self.props { 
-					view.bringSubviewToFront(prop.view)
+					self.view.bringSubviewToFront(prop.view)
 				}
 			}
             if i == lastIndex {
