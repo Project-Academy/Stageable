@@ -72,7 +72,7 @@ open class StageVC: UIViewController {
      The current top VC's props animate off-screen, then the incoming VC's
      props animate in. Calls are ignored while a transition is in progress.
      */
-    func push(_ incoming: Stageable) {
+    public func push(_ incoming: Stageable) {
         guard !isTransitioning else { return }
         guard let outgoing = stack.last else {
             installFirst(incoming)
