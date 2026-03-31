@@ -40,8 +40,8 @@ open class StageVC: UIViewController {
      */
     open var props: [Prop] = []
 
- 	var inDuration: TimeInterval = 0.45
-	var outDuration: TimeInterval = 0.35
+ 	public var inDuration: TimeInterval = 0.45
+	public var outDuration: TimeInterval = 0.35
 
     //--------------------------------------
     // MARK: - TRANSITIONS -
