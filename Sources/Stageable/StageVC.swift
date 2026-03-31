@@ -40,6 +40,9 @@ open class StageVC: UIViewController {
      */
     open var props: [Prop] = []
 
+ 	var inDuration: TimeInterval = 0.45
+	var outDuration: TimeInterval = 0.35
+
     //--------------------------------------
     // MARK: - TRANSITIONS -
     //--------------------------------------
@@ -240,7 +243,7 @@ open class StageVC: UIViewController {
      `completion` is called synchronously.
      */
     private func animateOut(_ vc: Stageable, completion: @escaping () -> Void) {
-        let outDuration: TimeInterval = 0.35
+        
         let allProps = vc.props + self.props
 
         if allProps.isEmpty {
@@ -291,7 +294,6 @@ open class StageVC: UIViewController {
             prop.view.transform = prop.offScreenTransform()
         }
 
-        let inDuration: TimeInterval = 0.45
 
         if allProps.isEmpty {
             vc.didMove(toParent: self)
