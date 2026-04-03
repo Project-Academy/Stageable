@@ -34,6 +34,8 @@ public struct Prop {
     public let transform: CGAffineTransform?
     /// Seconds to wait before this prop's animation starts, creating a stagger effect.
     public let delay: TimeInterval
+    /// Whether this prop participates in overlay toggle (e.g. focus mode). Defaults to `true`.
+    public let overlay: Bool
 
     /// A screen edge (or corner) that a ``Prop`` slides in from and out toward.
     public enum Direction {
@@ -47,12 +49,14 @@ public struct Prop {
        - view: The view to animate.
        - direction: The edge the view enters from.
        - delay: Stagger delay in seconds. Defaults to `0`.
+       - overlay: Whether this prop participates in overlay toggles. Defaults to `true`.
      */
-    public init(_ view: UIView, from direction: Direction, delay: TimeInterval = 0) {
+    public init(_ view: UIView, from direction: Direction, delay: TimeInterval = 0, overlay: Bool = true) {
         self.view = view
         self.direction = direction
         self.transform = nil
         self.delay = delay
+        self.overlay = overlay
     }
 
     /**
@@ -61,12 +65,14 @@ public struct Prop {
        - view: The view to animate.
        - transform: The transform applied when the view is off-screen.
        - delay: Stagger delay in seconds. Defaults to `0`.
+       - overlay: Whether this prop participates in overlay toggles. Defaults to `true`.
      */
-    public init(_ view: UIView, transform: CGAffineTransform, delay: TimeInterval = 0) {
+    public init(_ view: UIView, transform: CGAffineTransform, delay: TimeInterval = 0, overlay: Bool = true) {
         self.view = view
         self.direction = nil
         self.transform = transform
         self.delay = delay
+        self.overlay = overlay
     }
 
     /**

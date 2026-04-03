@@ -284,6 +284,10 @@ open class StageVC: UIViewController {
         }
         view.addSubview(vc.view)
 
+        for prop in props {
+            view.bringSubviewToFront(prop.view)
+        }
+        
         let allProps = vc.props + self.props
         for prop in allProps {
             prop.view.transform = .identity
@@ -293,7 +297,6 @@ open class StageVC: UIViewController {
         for prop in allProps {
             prop.view.transform = prop.offScreenTransform()
         }
-
 
         if allProps.isEmpty {
             vc.didMove(toParent: self)
@@ -317,6 +320,7 @@ open class StageVC: UIViewController {
                     guard let self, let vc else { return }
                     vc.didMove(toParent: self)
                     vc.didFinishEntrance()
+                    
                     completion()
                 }
             }
