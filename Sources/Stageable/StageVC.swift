@@ -243,7 +243,7 @@ open class StageVC: UIViewController {
      `completion` is called synchronously.
      */
     private func animateOut(_ vc: Stageable, completion: @escaping () -> Void) {
-        
+        vc.prepareForExit()
         let allProps = vc.props + self.props
 
         if allProps.isEmpty {
