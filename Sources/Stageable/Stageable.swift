@@ -28,14 +28,6 @@ import UIKit
  - **Concurrent animations** that should run alongside the props transition
    (start a `UIView.animate` in the hook and it will run in parallel).
 
- ## HUD configuration
-
- Each ``Stageable`` VC can declare which container buttons it wants visible:
- - ``showsSettingsButton`` — defaults to `true`. Set `false` for immersive screens.
- - ``showsFocusButton`` — defaults to `false`. Return `true` for VCs that support focus mode.
- - ``focusToggled(_:)`` — called when the user toggles focus mode. React by hiding
-   overlay elements and/or mutating ``showsSettingsButton``.
-
  ## Lifecycle order
 
  **Entrance** (push/pop arriving):
@@ -104,41 +96,12 @@ public protocol Stageable: UIViewController {
     /// for example, starting a loading indicator or beginning playback.
     func didFinishEntrance()
 
-    /// Whether the container's settings button should be visible for this VC.
-    ///
-    /// Defaults to `true`. Set to `false` for full-screen experiences
-    /// (e.g. login, settings) that manage their own chrome.
-    /// This property is read by the container during transitions and after
-    /// ``focusToggled(_:)`` — mutate it there to react to focus mode changes.
-    var showsSettingsButton: Bool { get set }
-
-    /// Whether the container's focus button should be visible for this VC.
-    ///
-    /// Defaults to `false`. Return `true` for VCs that support a focus/immersive
-    /// mode (e.g. a document viewer that can hide its overlay controls).
-    var showsFocusButton: Bool { get }
-
-    /// Called by the container when the user toggles focus mode.
-    ///
-    /// Implement this to hide or show overlay elements in response.
-    /// You may also mutate ``showsSettingsButton`` here — the container
-    /// reads it after this method returns and animates accordingly.
-    ///
-    /// - Parameter isFocused: `true` when entering focus mode, `false` when exiting.
-    func focusToggled(_ isFocused: Bool)
 }
 
 public extension Stageable {
     func prepareForEntrance() { }
     func prepareForExit() { }
     func didFinishEntrance() { }
-
-    var showsSettingsButton: Bool {
-        get { true }
-        set { }
-    }
-    var showsFocusButton: Bool { false }
-    func focusToggled(_ isFocused: Bool) { }
 
     /// The ``StageVC`` this view controller is currently on, if any.
     var stage: StageVC? { parent as? StageVC }
