@@ -104,11 +104,29 @@ public extension Stageable {
     func didFinishEntrance() { }
 
     /// The ``StageVC`` this view controller is currently on, if any.
-    var stage: StageVC? { parent as? StageVC }
+    ///
+    /// Walks up the parent chain so a Stageable VC nested inside another
+    /// container (e.g. a `Stageable` that hosts a child VC via a custom
+    /// transition) can still locate the stage and call ``push(_:)`` /
+    /// ``pop()`` on it.
+    var stage: StageVC? {
+        var current: UIViewController? = parent
+        while let vc = current {
+            if let stage = vc as? StageVC { return stage }
+            current = vc.parent
+        }
+        return nil
+    }
     /// Pushes a new view controller onto the stage stack.
     func push(_ vc: Stageable) { stage?.push(vc) }
     /// Pops this view controller off the stage stack, returning to the previous one.
     func pop() { stage?.pop() }
     /// Pops all view controllers down to the root of the stage stack.
-    func popToRoot() { stage?.popToRoot() }
+    ///
+    /// `completion` fires after the entrance animation finishes, or synchronously
+    /// if the call is a no-op (no stage, already at root, or a transition is in flight).
+    func popToRoot(completion: (() -> Void)? = nil) {
+        if let stage { stage.popToRoot(completion: completion) }
+        else { completion?() }
+    }
 }

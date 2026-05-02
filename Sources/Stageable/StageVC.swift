@@ -127,9 +127,15 @@ open class StageVC: UIViewController {
      Pops all view controllers above the root and returns to it.
 
      All intermediate view controllers are removed from the parent. Ignored during a transition.
+
+     `completion` fires after the entrance animation finishes, or synchronously
+     if the call is a no-op (already at root, or a transition is in flight).
      */
-    func popToRoot() {
-        guard !isTransitioning, stack.count > 1 else { return }
+    func popToRoot(completion: (() -> Void)? = nil) {
+        guard !isTransitioning, stack.count > 1 else {
+            completion?()
+            return
+        }
         let outgoing = stack[stack.count - 1]
         let root = stack[0]
         isTransitioning = true
@@ -146,6 +152,7 @@ open class StageVC: UIViewController {
             self.animateIn(root) {
                 self.isTransitioning = false
                 self.vcDidTransition()
+                completion?()
             }
         }
     }
@@ -287,7 +294,7 @@ open class StageVC: UIViewController {
         for prop in props {
             view.bringSubviewToFront(prop.view)
         }
-        
+
         let allProps = vc.props + self.props
         for prop in allProps {
             prop.view.transform = .identity
@@ -304,7 +311,7 @@ open class StageVC: UIViewController {
             completion()
             return
         }
-     
+
         let lastIndex = allProps.enumerated()
             .max(by: { $0.element.delay < $1.element.delay })!
             .offset
@@ -320,7 +327,6 @@ open class StageVC: UIViewController {
                     guard let self, let vc else { return }
                     vc.didMove(toParent: self)
                     vc.didFinishEntrance()
-                    
                     completion()
                 }
             }
