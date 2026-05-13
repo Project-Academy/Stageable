@@ -283,6 +283,16 @@ open class StageVC: UIViewController {
      If there are no props, those callbacks fire synchronously.
      */
     private func animateIn(_ vc: Stageable, completion: @escaping () -> Void) {
+        // Reset any leftover transform from the previous exit animation
+        // BEFORE writing `frame`. Otherwise the frame assignment is
+        // interpreted in transform-space — UIKit adjusts `center` to
+        // satisfy the equation `frame.x = center.x − bounds.width/2 + tx`.
+        // Once a non-zero `tx` was baked into `center`, resetting the
+        // transform on the prop loop two lines down would leave the
+        // view positioned `tx` points away from where the layout said
+        // it should be — and the subsequent off-screen-then-animate
+        // sequence lands the view in the wrong place.
+        vc.view.transform = .identity
         vc.view.frame = view.bounds
         vc.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
 
