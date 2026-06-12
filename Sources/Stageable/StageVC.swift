@@ -99,6 +99,36 @@ open class StageVC: UIViewController {
     }
 
     /**
+     Replaces the top view controller in place — the stack does not grow.
+
+     For advance-style flows (submit-and-next, queue paging) where the
+     outgoing screen is finished and must not be returned to via pop.
+     Ignored during a transition.
+     */
+    public func replaceTop(with incoming: Stageable) {
+        guard !isTransitioning else { return }
+        guard let outgoing = stack.last else {
+            installFirst(incoming)
+            stack = [incoming]
+            return
+        }
+        isTransitioning = true
+        vcWillTransition(from: outgoing)
+        animateOut(outgoing) { [weak self] in
+            guard let self else { return }
+            outgoing.view.removeFromSuperview()
+            outgoing.willMove(toParent: nil)
+            outgoing.removeFromParent()
+            self.stack[self.stack.count - 1] = incoming
+            vcWillTransition(to: incoming)
+            self.animateIn(incoming) {
+                self.isTransitioning = false
+                self.vcDidTransition()
+            }
+        }
+    }
+
+    /**
      Pops the top view controller off the stack and returns to the previous one.
 
      Requires at least two view controllers on the stack. Ignored during a transition.

@@ -121,6 +121,9 @@ public extension Stageable {
     func push(_ vc: Stageable) { stage?.push(vc) }
     /// Pops this view controller off the stage stack, returning to the previous one.
     func pop() { stage?.pop() }
+    /// Replaces this view controller in place — the stack does not grow.
+    /// For advance-style flows where the current screen is finished.
+    func replaceTop(_ vc: Stageable) { stage?.replaceTop(with: vc) }
     /// Pops all view controllers down to the root of the stage stack.
     ///
     /// `completion` fires after the entrance animation finishes, or synchronously
