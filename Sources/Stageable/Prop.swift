@@ -1,6 +1,6 @@
 //
 //  Prop.swift
-//  Backpack
+//  Stageable
 //
 //  Created by Sarfraz Basha on 18/03/2026.
 //

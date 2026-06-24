@@ -1,6 +1,6 @@
 //
 //  StageVC.swift
-//  Backpack
+//  Stageable
 //
 //  Created by Sarfraz Basha on 18/03/2026.
 //
@@ -33,7 +33,10 @@ open class StageVC: UIViewController {
     // MARK: - VARIABLES -
     //--------------------------------------
     private var stack: [Stageable] = []
-    private var isTransitioning = false
+    /// Whether a push/pop/setRoot animation is currently in flight. Authoritative
+    /// single source of truth — subclasses reconcile queued navigation against
+    /// this rather than tracking their own (desync-prone) copy.
+    public private(set) var isTransitioning = false
     /**
      Props owned by the container itself — animated on every transition alongside the child's props.
      Use these for persistent chrome (e.g. a tab bar or navigation overlay) that should move with each scene change.
