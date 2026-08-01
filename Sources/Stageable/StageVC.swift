@@ -145,7 +145,7 @@ open class StageVC: UIViewController {
 
      Requires at least two view controllers on the stack. Ignored during a transition.
      */
-    func pop() {
+    public func pop() {
         guard !isTransitioning, stack.count >= 2 else { return }
         let outgoing = stack[stack.count - 1]
         let incoming = stack[stack.count - 2]
@@ -173,7 +173,7 @@ open class StageVC: UIViewController {
      `completion` fires after the entrance animation finishes, or synchronously
      if the call is a no-op (already at root, or a transition is in flight).
      */
-    func popToRoot(completion: (() -> Void)? = nil) {
+    public func popToRoot(completion: (() -> Void)? = nil) {
         guard !isTransitioning, stack.count > 1 else {
             completion?()
             return
