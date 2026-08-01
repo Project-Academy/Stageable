@@ -38,6 +38,15 @@ open class StageVC: UIViewController {
     /// this rather than tracking their own (desync-prone) copy.
     public private(set) var isTransitioning = false
     /**
+     The scene currently on top of the stage, or nil while the stage is empty.
+
+     The stack itself stays private — the stage owns its own navigation — but the
+     top is state callers legitimately need: to know which scene is showing
+     without keeping a parallel copy that can desync from this one, which is the
+     same reason ``isTransitioning`` is exposed rather than tracked per-app.
+     */
+    public var top: Stageable? { stack.last }
+    /**
      Props owned by the container itself — animated on every transition alongside the child's props.
      Use these for persistent chrome (e.g. a tab bar or navigation overlay) that should move with each scene change.
      */
