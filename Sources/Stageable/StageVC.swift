@@ -109,6 +109,87 @@ open class StageVC: UIViewController {
     }
 
     //--------------------------------------
+    // MARK: - CHROME -
+    //--------------------------------------
+    /**
+     Views that outlive the screens (plan D1). The container owns them: their
+     views live on the stage above every screen, their presence is one recorded
+     Bool reconciled against destination state, and the phase a change rides is
+     derived from its direction — absent rides `.exit`, present rides `.enter`,
+     and where there is no phase to ride it is applied bare.
+     */
+    public private(set) var chrome: [Chrome] = []
+
+    /// Last-applied presence, keyed by chrome view (F1: reconcile against the
+    /// record, never against what the view currently looks like).
+    private var chromePresence: [ObjectIdentifier: Bool] = [:]
+
+    /// A `refreshChrome()` that arrived mid-transition, honoured at settle.
+    private var chromeRefreshPending = false
+
+    /// Replaces the chrome set. A departing chrome is put back first (A4): a
+    /// chrome the container last applied absent is applied present again before
+    /// its view leaves the stage.
+    public func setChrome(_ newChrome: [Chrome]) {
+        let newKeys = Set(newChrome.map { ObjectIdentifier($0.view) })
+        for old in chrome where !newKeys.contains(ObjectIdentifier(old.view)) {
+            let key = ObjectIdentifier(old.view)
+            if chromePresence[key] == false { old.apply(true) }
+            chromePresence[key] = nil
+            old.view.removeFromSuperview()
+        }
+        chrome = newChrome
+        for item in chrome where item.view.superview !== view {
+            view.addSubview(item.view)
+        }
+        raiseChrome()
+        reconcileChrome()
+    }
+
+    /// Re-evaluates presence now — for rules that read state outside the stage.
+    /// During a transition the reconcile is deferred to settle; the transition
+    /// itself already reconciles against its destination.
+    public func refreshChrome() {
+        guard !inFlight else { chromeRefreshPending = true; return }
+        reconcileChrome()
+    }
+
+    /// Bare reconcile: evaluate, apply what changed, update the record.
+    private func reconcileChrome() {
+        for item in chrome {
+            let key = ObjectIdentifier(item.view)
+            let desired = item.isPresent(self)
+            guard chromePresence[key] != desired else { continue }
+            chromePresence[key] = desired
+            item.apply(desired)
+        }
+    }
+
+    /// The changes this transition must carry, split by the phase they ride.
+    /// Evaluated once — the destination is fixed from plan-issue.
+    private func chromeChanges() -> (absent: [Chrome], present: [Chrome]) {
+        var absent: [Chrome] = [], present: [Chrome] = []
+        for item in chrome {
+            let key = ObjectIdentifier(item.view)
+            let desired = item.isPresent(self)
+            guard chromePresence[key] != desired else { continue }
+            if desired { present.append(item) } else { absent.append(item) }
+        }
+        return (absent, present)
+    }
+
+    private func applyChrome(_ changes: [Chrome], present: Bool) {
+        for item in changes {
+            chromePresence[ObjectIdentifier(item.view)] = present
+            item.apply(present)
+        }
+    }
+
+    private func raiseChrome() {
+        for item in chrome { view.bringSubviewToFront(item.view) }
+    }
+
+    //--------------------------------------
     // MARK: - THE PARKING LEDGER (A4) -
     //--------------------------------------
     /**
@@ -168,16 +249,28 @@ open class StageVC: UIViewController {
         let adopting = incoming.parent !== self
         if adopting { addChild(incoming) }
 
-        // Steps 1–5 exist only when something is leaving (first install skips them).
+        // The chrome this transition carries, split by the phase each change
+        // rides. Evaluated once — the destination is fixed from plan-issue.
+        let chromeRiding = chromeChanges()
+
+        // Steps 1–5 exist only when something is leaving. First install skips
+        // them — its chrome has no exit phase to ride, so it reconciles bare
+        // before the seam (absent chrome must not appear over the first screen).
+        if outgoing == nil {
+            applyChrome(chromeRiding.absent, present: false)
+            applyChrome(chromeRiding.present, present: true)
+        }
         if let outgoing {
             emitWillBegin(.exit, from: outgoing, to: incoming)                  // 1
             outgoing.willExit(exit)                                             // 2
             for screen in alsoLeaving { screen.willExit(.removed) }
 
             // 3 (appearance) — task 15.
-            // 4: exit animators — task 14. Degenerate case: park and remove
-            // immediately. A covered screen's entry outlives this transition.
+            // 4: exit animators — task 14, riding: chrome becoming absent.
+            // Degenerate case: park and remove immediately. A covered screen's
+            // entry outlives this transition.
             park(outgoing)
+            applyChrome(chromeRiding.absent, present: false)
             outgoing.view.removeFromSuperview()
 
             outgoing.didExit(exit)                                              // 5
@@ -205,14 +298,16 @@ open class StageVC: UIViewController {
         incoming.view.transform = .identity
         incoming.view.frame = view.bounds
         incoming.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        raiseChrome()
         restore(incoming)
         emitWillBegin(.enter, from: outgoing, to: incoming)
         incoming.willEnter()
         incoming.view.layoutIfNeeded()
         park(incoming)
 
-        // 7: enter animators — task 14. Degenerate case: the entrance lands
-        // immediately, which IS the restore.
+        // 7: enter animators — task 14, riding: chrome becoming present.
+        // Degenerate case: the entrance lands immediately, which IS the restore.
+        applyChrome(chromeRiding.present, present: true)
         restore(incoming)
 
         // 8.
@@ -232,7 +327,9 @@ open class StageVC: UIViewController {
             screen.didExit(.removed)
             restore(screen)             // A4: leaving for good, put it all back
         }
-        // Chrome reconciles bare here (task 13) — a strike changes `depth`.
+        // Chrome reconciles bare — a strike changes `depth`, which
+        // `isPresent` may read, and there is no phase to ride.
+        reconcileChrome()
         land(completion)
     }
 
@@ -241,7 +338,13 @@ open class StageVC: UIViewController {
         inFlight = false
         completion?(.performed)
         drain()
-        if !inFlight, navigator.queue.isEmpty { emitDidSettle() }
+        if !inFlight, navigator.queue.isEmpty {
+            if chromeRefreshPending {
+                chromeRefreshPending = false
+                reconcileChrome()
+            }
+            emitDidSettle()
+        }
     }
 
     //--------------------------------------
