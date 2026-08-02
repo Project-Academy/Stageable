@@ -75,7 +75,8 @@ final class StageVCPhaseTests: XCTestCase {
     func testExitPhaseEndsOnlyWhenItsLastAnimatorCompletes() {
         let a = screen(withViews: 2), b = screen(withViews: 0)
         stage.push(a)
-        held.removeAll { $0(); return true }        // land a's entrance
+        let landEntrance = held; held = []          // swap first: completions can
+        for completion in landEntrance { completion() }   // start new animators
         stage.log = []
 
         stage.push(b)
