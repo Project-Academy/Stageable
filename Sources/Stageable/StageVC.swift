@@ -109,6 +109,43 @@ open class StageVC: UIViewController {
     }
 
     //--------------------------------------
+    // MARK: - THE PARKING LEDGER (A4) -
+    //--------------------------------------
+    /**
+     Every view the container moves, it puts back — to the value recorded when
+     it was moved, never to whatever it observes at restore time.
+
+     Keyed by screen. An entry outlives a covering (the screen's views wait
+     off-screen for the pop back) and is settled either by the enter phase or,
+     for a screen leaving for good, at its release.
+     */
+    private struct ParkRecord {
+        let view: UIView
+        let restore: CGAffineTransform
+    }
+    private var ledger: [ObjectIdentifier: [ParkRecord]] = [:]
+
+    /// Read the screen's props NOW, record what each view has, move it off.
+    /// Parking twice would record the parked value as the restore value — the
+    /// ledger refuses: an existing entry stands.
+    private func park(_ screen: any Stageable) {
+        let key = ObjectIdentifier(screen)
+        guard ledger[key] == nil else { return }
+        ledger[key] = screen.props.map { prop in
+            let record = ParkRecord(view: prop.view, restore: prop.view.transform)
+            prop.view.transform = prop.offScreenTransform()
+            return record
+        }
+    }
+
+    /// Put every parked view back to its recorded value and settle the entry.
+    /// Restoring a screen with no entry is a no-op, not an error.
+    private func restore(_ screen: any Stageable) {
+        guard let records = ledger.removeValue(forKey: ObjectIdentifier(screen)) else { return }
+        for record in records { record.view.transform = record.restore }
+    }
+
+    //--------------------------------------
     // MARK: - PERFORMING PLANS (A7) -
     //--------------------------------------
 
@@ -138,7 +175,9 @@ open class StageVC: UIViewController {
             for screen in alsoLeaving { screen.willExit(.removed) }
 
             // 3 (appearance) — task 15.
-            // 4: exit animators — task 14. Degenerate case: remove immediately.
+            // 4: exit animators — task 14. Degenerate case: park and remove
+            // immediately. A covered screen's entry outlives this transition.
+            park(outgoing)
             outgoing.view.removeFromSuperview()
 
             outgoing.didExit(exit)                                              // 5
@@ -147,24 +186,34 @@ open class StageVC: UIViewController {
                 screen.willMove(toParent: nil)
                 screen.removeFromParent()
                 screen.didExit(.removed)
+                restore(screen)         // A4: leaving for good, put it all back
             }
             if exit == .removed {
                 outgoing.willMove(toParent: nil)
                 outgoing.removeFromParent()
+                restore(outgoing)       // A4
             }
             emitDidEnd(.exit)
         }
 
-        // 6 — the seam. Parking (task 12) and chrome (task 13) join here.
+        // 6 — the seam, in A7's exact order. Chrome (task 13) joins here.
+        // Transform is reset before frame, or the translation is baked into
+        // `center`; parked views are restored before layout, or a covered
+        // screen's parked transform corrupts the frame the new park distance
+        // is measured from.
+        view.addSubview(incoming.view)
         incoming.view.transform = .identity
         incoming.view.frame = view.bounds
         incoming.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        view.addSubview(incoming.view)
+        restore(incoming)
         emitWillBegin(.enter, from: outgoing, to: incoming)
         incoming.willEnter()
         incoming.view.layoutIfNeeded()
+        park(incoming)
 
-        // 7: enter animators — task 14.
+        // 7: enter animators — task 14. Degenerate case: the entrance lands
+        // immediately, which IS the restore.
+        restore(incoming)
 
         // 8.
         if adopting { incoming.didMove(toParent: self) }
@@ -181,6 +230,7 @@ open class StageVC: UIViewController {
             screen.willMove(toParent: nil)
             screen.removeFromParent()
             screen.didExit(.removed)
+            restore(screen)             // A4: leaving for good, put it all back
         }
         // Chrome reconciles bare here (task 13) — a strike changes `depth`.
         land(completion)
