@@ -170,6 +170,33 @@ A sidebar beside a detail pane needs its own stage, because `push` replaces the 
 
 ---
 
+## Migrating from 2.2.0
+
+2.4.0 is breaking. The renames are mechanical; the behaviour changes are not — read the second table.
+
+| 2.2.0 | 2.4.0 |
+|---|---|
+| `prepareForEntrance()` | `willEnter()` |
+| `didFinishEntrance()` | `didEnter()` |
+| `prepareForExit()` | `willExit(_ exit: Exit)` — now says whether you're coming back |
+| `vcWillTransition(from:)` / `(to:)` | `stageWillBegin(_ phase:from:to:)` |
+| `vcDidTransition()` | `stageDidEnd(.enter)` per transition, or `stageDidSettle()` for queue-empty |
+| `whenSettled { }` | delete it — commands queue; just issue the command |
+| container `props` | `setChrome(_:)` — ride-along views use `riding: .everyTransition` |
+| `replaceTop(_:)` | `replaceTop(with:)` |
+| `popToRoot { }` (`() -> Void`) | completion is `(Outcome) -> Void` |
+
+Behaviour changes to check at call sites:
+
+| Was | Is | Watch for |
+|---|---|---|
+| `push`/`pop` **dropped** while busy | commands **queue** and run | Double-taps are two real commands — the second pop removes the screen *below*. Guard taps with `isTransitioning`. |
+| `top` = current screen | `top` = **destination** | Anything reading `top` mid-transition now sees the incoming screen. |
+| `push` with no stage silently no-op'd | completes `.discarded` | Code that polled for `stage != nil` should stash and flush in `didMove(toParent:)` instead. |
+| covered screens: views stayed put | views **park off-screen** in the ledger | Don't touch a prop's transform while covered; the stage restores the recorded value. |
+
+---
+
 ## Smells
 
 Each of these was found in shipped code, most in more than one app.
