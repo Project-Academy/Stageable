@@ -38,6 +38,16 @@ open class StageVC: UIViewController {
     /// this rather than tracking their own (desync-prone) copy.
     public private(set) var isTransitioning = false
     /**
+     A `setRoot` that arrived mid-transition, applied as soon as the stage settles.
+
+     `setRoot` used to return silently while busy. Since the root is how an app
+     expresses "who is logged in", a dropped one leaves the app showing the
+     departed session — so every adopter grew its own retry loop, polling on a
+     fixed delay shorter than the default transition. Latest wins: a newer root
+     replaces a queued one, and a `setRoot` that runs directly clears the queue.
+     */
+    private var queuedRoot: Stageable?
+    /**
      The scene currently on top of the stage, or nil while the stage is empty.
 
      The stack itself stays private — the stage owns its own navigation — but the
@@ -91,21 +101,27 @@ open class StageVC: UIViewController {
         guard !isTransitioning else { return }
         guard let outgoing = stack.last else {
             installFirst(incoming)
-            stack = [incoming]
             return
         }
         isTransitioning = true
         vcWillTransition(from: outgoing)
         animateOut(outgoing) { [weak self] in
             guard let self else { return }
+            // Only the VIEW leaves. The outgoing scene STAYS in the stack, so it
+            // stays a child — the same contract `UINavigationController` has,
+            // and the reason `navigationController` keeps working for a covered
+            // screen. Detaching it here made ``Stageable/stage`` nil for every
+            // scene below the top, so a covered scene's `push`/`pop`/`popToRoot`
+            // silently did nothing and `popToRoot`'s completion fired as though
+            // it had succeeded. Scenes that genuinely LEAVE the stack — pop,
+            // replaceTop, setRoot — are still removed from the parent below.
             outgoing.view.removeFromSuperview()
-            outgoing.willMove(toParent: nil)
-            outgoing.removeFromParent()
             self.stack.append(incoming)
             vcWillTransition(to: incoming)
             self.animateIn(incoming) {
                 self.isTransitioning = false
                 self.vcDidTransition()
+                self.applyQueuedRootIfNeeded()
             }
         }
     }
@@ -121,21 +137,21 @@ open class StageVC: UIViewController {
         guard !isTransitioning else { return }
         guard let outgoing = stack.last else {
             installFirst(incoming)
-            stack = [incoming]
             return
         }
         isTransitioning = true
         vcWillTransition(from: outgoing)
         animateOut(outgoing) { [weak self] in
             guard let self else { return }
-            outgoing.view.removeFromSuperview()
             outgoing.willMove(toParent: nil)
+            outgoing.view.removeFromSuperview()
             outgoing.removeFromParent()
             self.stack[self.stack.count - 1] = incoming
             vcWillTransition(to: incoming)
             self.animateIn(incoming) {
                 self.isTransitioning = false
                 self.vcDidTransition()
+                self.applyQueuedRootIfNeeded()
             }
         }
     }
@@ -153,14 +169,15 @@ open class StageVC: UIViewController {
         vcWillTransition(from: outgoing)
         animateOut(outgoing) { [weak self] in
             guard let self else { return }
-            outgoing.view.removeFromSuperview()
             outgoing.willMove(toParent: nil)
+            outgoing.view.removeFromSuperview()
             outgoing.removeFromParent()
             self.stack.removeLast()
             vcWillTransition(to: incoming)
             self.animateIn(incoming) {
                 self.isTransitioning = false
                 self.vcDidTransition()
+                self.applyQueuedRootIfNeeded()
             }
         }
     }
@@ -185,8 +202,8 @@ open class StageVC: UIViewController {
         animateOut(outgoing) { [weak self] in
             guard let self else { return }
             for vc in self.stack.dropFirst() {
-                vc.view.removeFromSuperview()
                 vc.willMove(toParent: nil)
+                vc.view.removeFromSuperview()
                 vc.removeFromParent()
             }
             self.stack = [root]
@@ -195,6 +212,7 @@ open class StageVC: UIViewController {
                 self.isTransitioning = false
                 self.vcDidTransition()
                 completion?()
+                self.applyQueuedRootIfNeeded()
             }
         }
     }
@@ -206,10 +224,13 @@ open class StageVC: UIViewController {
      incoming VC is installed immediately without an exit animation.
      */
     public func setRoot(_ incoming: Stageable) {
-        guard !isTransitioning else { return }
+        guard !isTransitioning else {
+            queuedRoot = incoming
+            return
+        }
+        queuedRoot = nil
         guard let outgoing = stack.last else {
             installFirst(incoming)
-            stack = [incoming]
             return
         }
         isTransitioning = true
@@ -217,8 +238,8 @@ open class StageVC: UIViewController {
         animateOut(outgoing) { [weak self] in
             guard let self else { return }
             for vc in self.stack {
-                vc.view.removeFromSuperview()
                 vc.willMove(toParent: nil)
+                vc.view.removeFromSuperview()
                 vc.removeFromParent()
             }
             self.stack = [incoming]
@@ -226,8 +247,18 @@ open class StageVC: UIViewController {
             self.animateIn(incoming) {
                 self.isTransitioning = false
                 self.vcDidTransition()
+                self.applyQueuedRootIfNeeded()
             }
         }
+    }
+
+    /// Applies a root that arrived while the stage was busy. Runs after
+    /// ``vcDidTransition()``, so a subclass that sets its own root from that
+    /// hook wins — its `setRoot` executes directly and clears the queue.
+    private func applyQueuedRootIfNeeded() {
+        guard let queued = queuedRoot else { return }
+        queuedRoot = nil
+        setRoot(queued)
     }
 
     //--------------------------------------
@@ -241,10 +272,29 @@ open class StageVC: UIViewController {
      Completion fires `didMove(toParent:)`, ``didFinishEntrance()``, and ``vcDidTransition()``.
      */
     private func installFirst(_ vc: Stageable) {
+        // The install IS a transition. It used to leave `isTransitioning`
+        // false while running 0.45s of animation, so the guard on every
+        // navigation method was blind during the first scene — the cold-launch
+        // window where the login, deep-link and device-lock races all live.
+        isTransitioning = true
+        // The stack is mutated HERE, not by the caller, so `top` is correct
+        // inside the hooks below. Callers used to assign it after returning,
+        // which left `vcWillTransition(to:)` and `vcDidTransition()` seeing an
+        // empty stage on this path and a populated one on every other.
+        stack = [vc]
+
         vc.view.frame = view.bounds
         vc.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         addChild(vc)
         view.addSubview(vc.view)
+
+        // Container chrome goes in front of the scene, as it does on every
+        // other path — without this the first scene covered it until the
+        // second transition, which for an opaque scene meant invisible and
+        // untappable chrome for the whole of the first screen.
+        for prop in props {
+            view.bringSubviewToFront(prop.view)
+        }
 
         vc.prepareForEntrance()
         vc.view.layoutIfNeeded()
@@ -254,12 +304,12 @@ open class StageVC: UIViewController {
             prop.view.transform = prop.offScreenTransform()
         }
 
-        let inDuration: TimeInterval = 0.45
-
         if allProps.isEmpty {
             vc.didMove(toParent: self)
             vc.didFinishEntrance()
+            isTransitioning = false
             vcDidTransition()
+            applyQueuedRootIfNeeded()
             return
         }
 
@@ -278,7 +328,9 @@ open class StageVC: UIViewController {
                     guard let self, let vc else { return }
                     vc.didMove(toParent: self)
                     vc.didFinishEntrance()
+                    self.isTransitioning = false
                     self.vcDidTransition()
+                    self.applyQueuedRootIfNeeded()
                 }
             }
             animator.startAnimation(afterDelay: prop.delay)

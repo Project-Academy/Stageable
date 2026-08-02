@@ -35,6 +35,11 @@ public struct Prop {
     /// Seconds to wait before this prop's animation starts, creating a stagger effect.
     public let delay: TimeInterval
     /// Whether this prop participates in overlay toggle (e.g. focus mode). Defaults to `true`.
+    ///
+    /// - Important: `StageVC` does not currently read this. Call sites that pass
+    ///   `overlay: false` get identical behaviour to the default. Left in place
+    ///   rather than removed because several apps already pass it and the
+    ///   intended behaviour is a product decision, not a mechanical one.
     public let overlay: Bool
 
     /// A screen edge (or corner) that a ``Prop`` slides in from and out toward.
@@ -83,8 +88,19 @@ public struct Prop {
         if let transform { return transform }
         guard let direction else { return .identity }
 
-        let screen = UIScreen.main.bounds
-        let frame = view.frame
+        // Measured in the WINDOW's space, not the screen's, and with the frame
+        // converted into that space rather than used raw.
+        //
+        // `view.frame` is expressed in its SUPERVIEW's coordinates. Measuring it
+        // against `UIScreen.main.bounds` was wrong twice over: a prop inside an
+        // inset container stopped short of the edge and hung there in view, and
+        // any window that isn't full-screen — Split View, Slide Over, Stage
+        // Manager, or a stage nested in part of the screen — made every prop
+        // travel the whole display instead of its own container, overshooting
+        // badly on the spring. `UIScreen.main` is also deprecated.
+        let container: UIView? = view.window ?? view.superview
+        let screen = container?.bounds ?? UIScreen.main.bounds
+        let frame = view.superview?.convert(view.frame, to: container) ?? view.frame
 
         let toLeft = -(frame.maxX)
         let toRight = screen.width - frame.minX

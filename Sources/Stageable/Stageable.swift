@@ -105,10 +105,13 @@ public extension Stageable {
 
     /// The ``StageVC`` this view controller is currently on, if any.
     ///
-    /// Walks up the parent chain so a Stageable VC nested inside another
-    /// container (e.g. a `Stageable` that hosts a child VC via a custom
-    /// transition) can still locate the stage and call ``push(_:)`` /
-    /// ``pop()`` on it.
+    /// Walks up the parent chain, so it resolves for a scene nested inside
+    /// another container as well as for a direct child.
+    ///
+    /// Valid for ANY scene in the stack, not just the top one: a stage keeps
+    /// every stacked scene as a child and removes only the view of a covered
+    /// one. A scene that has been popped, replaced or cleared by `setRoot` is
+    /// no longer on a stage and correctly returns nil.
     var stage: StageVC? {
         var current: UIViewController? = parent
         while let vc = current {
