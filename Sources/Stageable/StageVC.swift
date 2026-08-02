@@ -120,8 +120,8 @@ open class StageVC: UIViewController {
             vcWillTransition(to: incoming)
             self.animateIn(incoming) {
                 self.isTransitioning = false
-                self.vcDidTransition()
                 self.applyQueuedRootIfNeeded()
+                self.vcDidTransition()
             }
         }
     }
@@ -150,8 +150,8 @@ open class StageVC: UIViewController {
             vcWillTransition(to: incoming)
             self.animateIn(incoming) {
                 self.isTransitioning = false
-                self.vcDidTransition()
                 self.applyQueuedRootIfNeeded()
+                self.vcDidTransition()
             }
         }
     }
@@ -176,8 +176,8 @@ open class StageVC: UIViewController {
             vcWillTransition(to: incoming)
             self.animateIn(incoming) {
                 self.isTransitioning = false
-                self.vcDidTransition()
                 self.applyQueuedRootIfNeeded()
+                self.vcDidTransition()
             }
         }
     }
@@ -210,9 +210,9 @@ open class StageVC: UIViewController {
             vcWillTransition(to: root)
             self.animateIn(root) {
                 self.isTransitioning = false
+                self.applyQueuedRootIfNeeded()
                 self.vcDidTransition()
                 completion?()
-                self.applyQueuedRootIfNeeded()
             }
         }
     }
@@ -246,15 +246,18 @@ open class StageVC: UIViewController {
             vcWillTransition(to: incoming)
             self.animateIn(incoming) {
                 self.isTransitioning = false
-                self.vcDidTransition()
                 self.applyQueuedRootIfNeeded()
+                self.vcDidTransition()
             }
         }
     }
 
-    /// Applies a root that arrived while the stage was busy. Runs after
-    /// ``vcDidTransition()``, so a subclass that sets its own root from that
-    /// hook wins — its `setRoot` executes directly and clears the queue.
+    /// Applies a root that arrived while the stage was busy.
+    ///
+    /// Runs at the settle itself, BEFORE ``vcDidTransition()``. Running it after
+    /// meant a hook that navigated sent the queued root back through the guard
+    /// to be re-queued, so a logout could land two or three transitions later —
+    /// showing the departed session's screens in between.
     private func applyQueuedRootIfNeeded() {
         guard let queued = queuedRoot else { return }
         queuedRoot = nil
@@ -277,15 +280,17 @@ open class StageVC: UIViewController {
         // navigation method was blind during the first scene — the cold-launch
         // window where the login, deep-link and device-lock races all live.
         isTransitioning = true
-        // The stack is mutated HERE, not by the caller, so `top` is correct
-        // inside the hooks below. Callers used to assign it after returning,
-        // which left `vcWillTransition(to:)` and `vcDidTransition()` seeing an
-        // empty stage on this path and a populated one on every other.
+
+        // Parent FIRST, then publish. `top` is set here rather than by the
+        // caller so the hooks below see a populated stage on this path as they
+        // do on every other — but assigning it before `addChild` opened a
+        // window where `top === vc` while `vc.stage` was still nil, which is the
+        // same install-vs-everything-else asymmetry one method earlier.
+        addChild(vc)
         stack = [vc]
 
         vc.view.frame = view.bounds
         vc.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        addChild(vc)
         view.addSubview(vc.view)
 
         // Container chrome goes in front of the scene, as it does on every
@@ -308,8 +313,8 @@ open class StageVC: UIViewController {
             vc.didMove(toParent: self)
             vc.didFinishEntrance()
             isTransitioning = false
-            vcDidTransition()
             applyQueuedRootIfNeeded()
+            vcDidTransition()
             return
         }
 
@@ -329,8 +334,8 @@ open class StageVC: UIViewController {
                     vc.didMove(toParent: self)
                     vc.didFinishEntrance()
                     self.isTransitioning = false
-                    self.vcDidTransition()
                     self.applyQueuedRootIfNeeded()
+                    self.vcDidTransition()
                 }
             }
             animator.startAnimation(afterDelay: prop.delay)
@@ -390,9 +395,13 @@ open class StageVC: UIViewController {
         vc.view.frame = view.bounds
         vc.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
 
-        if vc.parent == nil {
-            addChild(vc)
-        }
+        // Only a scene that ISN'T already ours gets the containment callbacks.
+        // Covered scenes stay children, so re-entering one must not fire a
+        // second `didMove(toParent:)` against a single `willMove` — that is the
+        // "fully contained now" hook, and re-running it on every pop duplicates
+        // whatever one-shot setup it performs.
+        let wasAlreadyChild = vc.parent === self
+        if !wasAlreadyChild { addChild(vc) }
         view.addSubview(vc.view)
 
         for prop in props {
@@ -410,7 +419,7 @@ open class StageVC: UIViewController {
         }
 
         if allProps.isEmpty {
-            vc.didMove(toParent: self)
+            if !wasAlreadyChild { vc.didMove(toParent: self) }
             vc.didFinishEntrance()
             completion()
             return
@@ -429,7 +438,7 @@ open class StageVC: UIViewController {
             if i == lastIndex {
                 animator.addCompletion { [weak self, weak vc] _ in
                     guard let self, let vc else { return }
-                    vc.didMove(toParent: self)
+                    if !wasAlreadyChild { vc.didMove(toParent: self) }
                     vc.didFinishEntrance()
                     completion()
                 }

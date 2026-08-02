@@ -88,19 +88,26 @@ public struct Prop {
         if let transform { return transform }
         guard let direction else { return .identity }
 
-        // Measured in the WINDOW's space, not the screen's, and with the frame
-        // converted into that space rather than used raw.
+        // Measured entirely in the SUPERVIEW's space.
         //
-        // `view.frame` is expressed in its SUPERVIEW's coordinates. Measuring it
-        // against `UIScreen.main.bounds` was wrong twice over: a prop inside an
-        // inset container stopped short of the edge and hung there in view, and
-        // any window that isn't full-screen — Split View, Slide Over, Stage
-        // Manager, or a stage nested in part of the screen — made every prop
-        // travel the whole display instead of its own container, overshooting
-        // badly on the spring. `UIScreen.main` is also deprecated.
-        let container: UIView? = view.window ?? view.superview
-        let screen = container?.bounds ?? UIScreen.main.bounds
-        let frame = view.superview?.convert(view.frame, to: container) ?? view.frame
+        // `view.frame` is already expressed in those coordinates, so the bounds
+        // it is compared against must be too. Two earlier versions got this
+        // wrong in opposite directions:
+        //
+        //  · Comparing `frame` against `UIScreen.main.bounds` mixed two spaces,
+        //    so a prop inside an inset container stopped short of the edge and
+        //    hung there in view — and any window that isn't full-screen (Split
+        //    View, Stage Manager) made every prop travel the whole display.
+        //  · Resolving the frame with `convert(_:to:)` fixed that but folded
+        //    ANCESTOR transforms into the measurement. A prop whose ancestor was
+        //    already displaced — an inner stage's scene while the outer stage
+        //    animates its host away — then measured as already off-screen and
+        //    was given a translation of zero, so it did not animate at all.
+        //
+        // Staying in one space is immune to both. A prop travels off its own
+        // superview, which for a scene filling the stage is the stage.
+        let screen = view.superview?.bounds ?? UIScreen.main.bounds
+        let frame = view.frame
 
         let toLeft = -(frame.maxX)
         let toRight = screen.width - frame.minX
