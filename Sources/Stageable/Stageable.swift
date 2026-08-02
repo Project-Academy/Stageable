@@ -61,6 +61,11 @@ public protocol Stageable: UIViewController {
 
     /// The view is installed; nothing has animated yet. Layout is forced
     /// (`layoutIfNeeded`) immediately after this returns.
+    ///
+    /// **Never set a transform on a prop view here.** Props are parked right
+    /// after this returns, and the value recorded at park is the entrance
+    /// TARGET — a decorative pre-pose becomes what the screen lands on.
+    /// (Shipped bug: a scaleX(0.2) pre-pose here squished a login screen.)
     func willEnter()
 
     /// The entrance has landed — every prop is at `.identity`.

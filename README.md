@@ -210,6 +210,7 @@ Each of these was found in shipped code, most in more than one app.
 7. **Blockers that discard instead of defer.** A launch-time takeover may veto the reconcile, but it must leave the need recorded and consume it when it clears — otherwise an identity change during the veto is swallowed.
 8. **Treating `setRoot` as teardown.** It drops in-memory projections nothing else retains — it does not reclaim UserDefaults, statics, singletons, keychain or files, does not cancel in-flight `Task`s, and `removeFromParent` is not `deinit`. Correct teardown is one explicit pipeline; the root swap is a UI transition that happens to release some memory.
 9. **Keeping a parallel copy of stage state.** `top`, `depth` and `contains` are exposed so you don't have to. A `currentTop` field assigned from a transition hook reports the incoming screen while the outgoing one is still on screen.
+10. **Setting a transform on a prop view inside `willEnter()`.** Props park right after it returns, and the recorded value is the entrance *target* — a decorative pre-pose becomes the landing state. (The 2.2.0 engine silently discarded these; under 2.4 one shipped as a squished login screen.)
 
 ---
 
