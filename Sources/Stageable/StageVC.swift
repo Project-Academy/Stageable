@@ -47,6 +47,16 @@ open class StageVC: UIViewController {
      replaces a queued one, and a `setRoot` that runs directly clears the queue.
      */
     private var queuedRoot: Stageable?
+
+    /**
+     Work waiting for the stage to go idle — see ``whenSettled(_:)``.
+
+     `setRoot` can queue itself because a root is a single latest-wins value.
+     A `push` cannot: dropping one loses a screen, and queueing several silently
+     reorders navigation. So the stage exposes the settle instead and lets the
+     caller decide what to do with it.
+     */
+    private var settleHandlers: [() -> Void] = []
     /**
      The scene currently on top of the stage, or nil while the stage is empty.
 
@@ -122,6 +132,7 @@ open class StageVC: UIViewController {
                 self.isTransitioning = false
                 self.applyQueuedRootIfNeeded()
                 self.vcDidTransition()
+                self.drainSettleHandlers()
             }
         }
     }
@@ -152,6 +163,7 @@ open class StageVC: UIViewController {
                 self.isTransitioning = false
                 self.applyQueuedRootIfNeeded()
                 self.vcDidTransition()
+                self.drainSettleHandlers()
             }
         }
     }
@@ -178,6 +190,7 @@ open class StageVC: UIViewController {
                 self.isTransitioning = false
                 self.applyQueuedRootIfNeeded()
                 self.vcDidTransition()
+                self.drainSettleHandlers()
             }
         }
     }
@@ -212,6 +225,7 @@ open class StageVC: UIViewController {
                 self.isTransitioning = false
                 self.applyQueuedRootIfNeeded()
                 self.vcDidTransition()
+                self.drainSettleHandlers()
                 completion?()
             }
         }
@@ -248,8 +262,36 @@ open class StageVC: UIViewController {
                 self.isTransitioning = false
                 self.applyQueuedRootIfNeeded()
                 self.vcDidTransition()
+                self.drainSettleHandlers()
             }
         }
+    }
+
+    /**
+     Run `work` once the stage is idle — immediately if it already is.
+
+     `push`, `pop`, `replaceTop` and `popToRoot` are silently dropped while a
+     transition is in flight, so anything that must navigate after one has to
+     wait for it. Every adopter had hand-rolled that wait as a polling loop —
+     ten of them, in five different policies, several on a fixed delay shorter
+     than the framework's own default transition, so they always fired early.
+
+     Handlers run once, in the order registered, after the stage settles and
+     after ``vcDidTransition()``. A handler that starts a new transition does
+     not defer the ones behind it: they are drained as a batch first.
+     */
+    public func whenSettled(_ work: @escaping () -> Void) {
+        guard isTransitioning else { work(); return }
+        settleHandlers.append(work)
+    }
+
+    /// Drains ``whenSettled(_:)`` handlers. Taken as a batch before running, so
+    /// a handler that registers another one does not spin the drain.
+    private func drainSettleHandlers() {
+        guard !settleHandlers.isEmpty else { return }
+        let handlers = settleHandlers
+        settleHandlers = []
+        for work in handlers { work() }
     }
 
     /// Applies a root that arrived while the stage was busy.
@@ -315,6 +357,7 @@ open class StageVC: UIViewController {
             isTransitioning = false
             applyQueuedRootIfNeeded()
             vcDidTransition()
+            drainSettleHandlers()
             return
         }
 
@@ -336,6 +379,7 @@ open class StageVC: UIViewController {
                     self.isTransitioning = false
                     self.applyQueuedRootIfNeeded()
                     self.vcDidTransition()
+                    self.drainSettleHandlers()
                 }
             }
             animator.startAnimation(afterDelay: prop.delay)
