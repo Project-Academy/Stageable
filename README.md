@@ -213,9 +213,41 @@ Each of these was found in shipped code, most in more than one app.
 
 ---
 
+## Anatomy of a transition
+
+```
+┌─ EXIT PHASE ──────────────┐┌─ SEAM (instant) ─────────┐┌─ ENTER PHASE ─────────────┐
+│ outgoing props park       ││ view swap · restore      ││ props return to their     │
+│ chrome becoming absent    ││ parked · willEnter ·     ││ recorded values · chrome  │
+│ rides along               ││ layout · re-park         ││ becoming present rides    │
+└───────────────────────────┘└──────────────────────────┘└───────────────────────────┘
+  willExit(exit) → didExit(exit)                           didEnter() → settle
+```
+
+A phase ends when its **last animator completes** — never on a timer. A phase with **no animators takes no time**: a propless→propless transition runs synchronously.
+
 ## The callback order
 
-The full per-transition order — who is told what, when, including appearance forwarding, containment, and where chrome rides — is fixed by the A7 table in `docs/systems/frameworks/stageable-rebuild-plan.md` and enforced by `StageVCAppearanceTests`, which log-match every scenario against it.
+Fixed here, not decided by the implementation — `StageVCAppearanceTests` log-matches every scenario below against this table.
+
+1. `stageWillBegin(.exit, from:to:)`
+2. outgoing `willExit(exit)`; each also-leaving screen `willExit(.removed)`
+3. outgoing `beginAppearanceTransition(false)` *(all appearance calls gated on the container itself being visible)*
+4. exit phase runs · outgoing view removed · `endAppearanceTransition()`
+5. outgoing `didExit(exit)`; each also-leaving screen released (**no appearance calls** — it was already covered); a `.removed` outgoing is un-parented · `stageDidEnd(.exit)`
+6. **Seam:** add incoming view → reset transform → frame → raise chrome → restore parked views → `beginAppearanceTransition(true)` → `stageWillBegin(.enter)` → `willEnter()` → layout → read `props` → park them
+7. enter phase runs — parked views to their recorded values, chrome becoming present alongside
+8. `endAppearanceTransition()` · `didMove(toParent:)` if newly adopted · `didEnter()` · `stageDidEnd(.enter)`
+9. completion(`.performed`) · drain the queue · `stageDidSettle()` once the queue is empty and nothing is in flight
+
+| Scenario | Differences |
+|---|---|
+| First install | No outgoing: steps 1–5 skipped; chrome reconciles bare before the seam |
+| Push | As written; outgoing takes `.covered` and stays parented |
+| Pop / `replaceTop` | Outgoing takes `.removed`, un-parented at step 5 |
+| `popToRoot` | Same, plus the also-leaving screens |
+| `setRoot` naming the visible screen | A **strike**: the rest leave the stack (`willExit(.removed)` → released → `didExit(.removed)`), nothing on screen changes, no phases, no appearance calls; chrome reconciles bare |
+| No plan (e.g. pop at root) | Completions fire (`.noop`/`.discarded`); nothing else — no settle |
 
 | File | Purpose |
 |---|---|
