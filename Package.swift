@@ -22,6 +22,9 @@ let package = Package(
         .target(
             name: "Stageable"
         ),
-
+        .testTarget(
+            name: "StageableTests",
+            dependencies: ["Stageable"]
+        ),
     ]
 )
