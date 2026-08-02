@@ -1,27 +1,29 @@
 # Stageable
 
-A UIKit navigation container that replaces `UINavigationController` with a theatrical metaphor. Screens are **scenes**; their UI elements are **props** that animate on and off like set pieces entering from the wings.
+A UIKit navigation container that replaces `UINavigationController`. A **stage** owns a stack of screens and shows the top one; screens declare **props** — the views that ride the stage's animations — and the stage animates between screens in a fixed, tested callback order.
 
-Scenes declare *what* moves and *from where*. The stage decides *when*.
+Screens declare *what* moves and *from where*. The stage decides *when*.
+
+Inside, the framework is two halves: a pure state machine (`Navigator` — the stack, the queue, and what a command means for them) and a container (`StageVC`) that only moves views and fires callbacks. The state machine never touches a view, which is why this package has real tests.
 
 ---
 
-## What the stage is responsible for
+## Who owns what
 
-| The stage owns | The scene owns |
+| The stage owns | The screen owns |
 |---|---|
-| **The stack** — `push`, `pop`, `popToRoot`, `replaceTop`, `setRoot`. Nothing else adds or removes a scene. | **Its props** — which views move, from which edge, after what delay. Data, not code. |
-| **Transition timing** — `inDuration`, `outDuration`, spring, stagger, ordering. | **Its own content and state**, for as long as it is on the stack. |
-| **Chrome that outlives a scene** — the stage's own `props`, animated on every transition and kept in front. | **Its entrance/exit hooks** — the things a transform can't express: fades, layout changes, resets. |
-| **Whether it is busy** — `isTransitioning`, and the rule that navigation during a transition is deferred or dropped. | |
+| **The stack** — `push`, `pop`, `popToRoot`, `replaceTop`, `setRoot`. Nothing else adds or removes a screen. | **Its props** — which views move, from which edge, after what delay. Data, not code. |
+| **Transition timing** — `exitDuration` (0.35), `enterDuration` (0.45), spring, stagger, ordering. | **Its own content and state**, for as long as it is on the stack. |
+| **Chrome** — views that outlive the screens, present or absent by a rule, kept above every screen. | **Its lifecycle hooks** — the things a transform can't express: fades, layout changes, resets. |
+| **Every view it moves** — each is put back to the value recorded when it was moved, never to what it observes later. | |
 
-**What the stage must not know:** what identity is, what a session is, or what ought to be on it. It is handed a scene and shows it. That ignorance is why the same container can carry a login screen and a document viewer — and why the root decision belongs in the app, not here.
+**What the stage must not know:** what identity is, what a session is, or what ought to be on it. It is handed a screen and shows it. That ignorance is why the same container can carry a login screen and a document viewer — and why the root decision belongs in the app, not here.
 
 ---
 
 ## Usage
 
-### 1. Conform to `Stageable`
+### Conform to `Stageable`
 
 ```swift
 extension ProfileVC: Stageable {
@@ -33,68 +35,97 @@ extension ProfileVC: Stageable {
 }
 ```
 
-`props` is evaluated at each transition, so it can vary with state — but a view present at exit and absent at entrance keeps the off-screen transform that was baked into it, because only props in the array at entrance are reset. Reset it yourself, or keep the view in the array and vary something else.
+Direction props (`.top`, `.bottom`, `.left`, `.right`, and the corners) slide fully off their **superview**; `Prop(view, transform:)` expresses anything else. Off-screen travel is measured in the superview's space, so props inside inset containers, inner stages, and non-fullscreen windows all travel the correct distance.
 
-### 2. Navigate
+`props` is read at each transition's seam, so it can vary with state. The stage restores parked views from its own ledger — a screen whose `props` changed while covered still gets every originally-parked view put back.
 
-From any `Stageable`:
+### Navigate
+
+From any stacked screen (covered ones included — they keep their parent, so `stage` resolves):
 
 ```swift
-push(DetailVC())        // push onto the stack
-pop()                   // back one
-popToRoot()             // back to the stage root
-replaceTop(NextVC())    // swap in place; the stack does not grow
+push(DetailVC())          // covers this screen; Back returns here
+pop()                     // removes the visible top — ALWAYS the top, not the caller
+replaceTop(with: next)    // advance-style: the stack does not grow
+popToRoot()
+stage?.setRoot(HomeVC())  // the stack is now this; everything queued is discarded
 ```
 
-`stage` resolves from **any** scene in the stack, not just the visible one — a covered scene keeps its parent.
-
-> But `pop()` and `replaceTop(_:)` act on the stage's **top**, not on the caller. From a covered scene they will dismiss or replace whatever the user is actually looking at. Call them only from the visible scene.
-
-### 3. Subclass `StageVC` for your app's container
+Every command settles exactly once, saying which of three fates it took:
 
 ```swift
-final class BaseVC: StageVC {
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+stage?.push(payment) { outcome in
+    switch outcome {
+    case .performed: beginCharge()   // it ran
+    case .noop:      break           // valid, nothing to do — a pop at the root
+    case .discarded: break           // a setRoot voided it, or it named a staged screen
     }
 }
 ```
 
-Override `vcWillTransition(from:)`, `vcWillTransition(to:)` and `vcDidTransition()` to keep chrome in sync. `vcDidTransition()` is the **settle event** — the correct place to consume anything that had to wait for the stage.
+No command is dropped because the stage is busy — commands queue and run in order. A `setRoot` discards everything queued (an in-flight transition still finishes first), and the **newest** queued `setRoot` wins.
+
+### Screen lifecycle
+
+```swift
+func willEnter()              // installed, nothing animated yet; layout is forced after
+func didEnter()               // the entrance landed
+func willExit(_ exit: Exit)   // .covered = Back returns here; .removed = release everything
+func didExit(_ exit: Exit)    // same Exit, after the departure landed
+```
+
+`Exit` is the one fact a screen cannot work out for itself, because the stack belongs to the navigator. A queued `setRoot` can tear a screen down moments after `didEnter()` — unconditional side effects belong behind your own checks.
+
+Appearance (`viewWillAppear` …) is forwarded by the stage, matching `UINavigationController`: covered screens get `viewWillDisappear`/`viewDidDisappear` even though they stay parented, and a screen pushed while the stage is off-screen receives its appearance when the stage appears.
+
+### Chrome
+
+```swift
+stage.setChrome([
+    Chrome(backButton, isPresent: { $0.depth > 1 }) { present in
+        backButton.alpha = present ? 1 : 0
+    },
+    Chrome(Prop(headerBar, from: .top), isPresent: { _ in true }),  // apply derived from the prop
+])
+```
+
+The stage reconciles: `isPresent` is evaluated against the **destination** state on every transition, `apply` runs only when the answer changed, and the change rides the phase its direction implies — becoming absent leaves with the outgoing screen, becoming present arrives with the incoming one. `apply` sets values, never animates; the stage calls it inside its own animator, or bare when there is no phase to ride (first install, strikes, `refreshChrome()`). For rules that read state outside the stage, call `refreshChrome()`.
+
+### Stage hooks
+
+A subclass overrides; a host that *owns* a stage observes (weakly) instead:
+
+```swift
+class Shell: StageVC {
+    override func stageWillBegin(_ phase: Phase, from: (any Stageable)?, to: (any Stageable)?) { }
+    override func stageDidEnd(_ phase: Phase) { }
+    override func stageDidSettle() { }   // a plan landed, queue empty, nothing in flight
+}
+// or: stage.addObserver(self)          // StageObserver
+```
+
+Read state from the stage, never the view hierarchy: `top`, `depth`, `contains(_:)` — all describe the **destination** during a transition.
 
 ---
 
-## Adopting it correctly
-
-Seven apps run this. Step 1 is the only one all seven follow today; the rest are where the fleet is heading, and several apps still deviate. **Smells** is what they each got wrong first.
+## Adopting it correctly — the window-root model
 
 ### 1. The window root is the stage, and it never changes
 
-Install it once and leave it. Login and Home are both *scenes on it* — not alternative window roots.
+Install it once and leave it. Login and Home are both *screens on it* — not alternative window roots. Everything that reaches through the window root — deep links, share-sheet handoffs, topmost-VC walks — keeps working across a login and a logout, because the root outlives both.
 
-```swift
-let base = BaseVC()
-window.rootViewController = base
-window.makeKeyAndVisible()
-```
-
-Everything that reaches through the window root — deep links, share-sheet handoffs, topmost-VC walks — keeps working across a login and a logout, because the root outlives both.
-
-### 2. Install the first scene in `viewIsAppearing`
+### 2. Install the first screen in `viewIsAppearing`
 
 Not `viewDidLoad`. Props are measured against real geometry, and in `viewDidLoad` there isn't any.
 
 ```swift
-private var pendingRoot: Stageable?
+private var pendingRoot: (any Stageable)?
 private var didInstallRoot = false
 
 override func viewIsAppearing(_ animated: Bool) {
     super.viewIsAppearing(animated)
     guard !didInstallRoot else { return }
-    // Mark the slot used the first time we appear, staged root or not — this
-    // does not fire again, and bailing without setting it strands the stage.
-    didInstallRoot = true
+    didInstallRoot = true                 // BOTH branches — this never fires again
     guard let root = pendingRoot else { reconcileRoot(); return }
     pendingRoot = nil
     setRoot(root)
@@ -112,37 +143,28 @@ private var installedRoot: RootIntent?
 func reconcileRoot() {
     let desired: RootIntent = hasPersistedIdentity ? .content : .login
     guard installedRoot != desired else { return }
-
-    // Record only once a scene exists to install — see Smell 4.
-    guard let scene = scene(for: desired) else { return }
+    guard let screen = screen(for: desired) else { return }   // record only once it exists
     installedRoot = desired
-
-    guard didInstallRoot else { pendingRoot = scene; return }
-    setRoot(scene)
+    guard didInstallRoot else { pendingRoot = screen; return }
+    setRoot(screen)
 }
 ```
 
 ### 4. Compare a stored **intent**, never the view
 
-`installedRoot != desired` — not `top is HomeVC`, not `children.contains { $0 is LoginVC }`. See Smell 1; this is the one that has actually shipped as a bug.
+`installedRoot != desired` — not `top is HomeVC`, not `children.contains { $0 is LoginVC }`. Both shipped as bugs, in opposite directions (see Smell 1).
 
 ### 5. Use a synchronous identity predicate
 
-`Session.storage.loggedInUser != nil` and friends are already in memory. Awaiting them before staging anything just delays first paint, and an `await` on the root decision invites a stash-and-defer dance that isn't needed.
+`Session.storage.loggedInUser != nil` and friends are already in memory. Awaiting the root decision just delays first paint and invites a stash-and-defer dance.
 
-### 6. Chrome goes on the container as props
+### 6. Persistent UI goes on the stage as `Chrome`
 
-```swift
-props = [Prop(btnSettings, from: .bottom)]
-```
-
-Container props animate with every transition and are kept in front. Toggle their visibility from `vcWillTransition(to:)`.
+Not as a view a screen manages, and not toggled from transition hooks — declare the rule and let the stage reconcile it.
 
 ### 7. Add a second stage only for a persistent **region**
 
-If part of the screen must survive content navigation — a sidebar beside a detail pane — that content needs its own stage, because `push` replaces the whole of a stage's view. A host VC owns the inner stage and subclasses `StageVC` to observe it.
-
-Not a reason for a second stage: app size, "these change on different schedules", or content that can't be chosen until a fetch returns (show a placeholder scene on the one stage instead).
+A sidebar beside a detail pane needs its own stage, because `push` replaces the whole of a stage's view; a host VC owns the inner stage and observes it. Not a reason for a second stage: app size, "these change on different schedules", or content that can't be chosen until a fetch returns (stage a placeholder screen instead).
 
 ---
 
@@ -150,137 +172,26 @@ Not a reason for a second stage: app size, "these change on different schedules"
 
 Each of these was found in shipped code, most in more than one app.
 
-### 1. Asking the view hierarchy what the root is
-
-```swift
-// WRONG
-guard hasUser == (top is LoginVC) else { return }
-guard hasUser == children.contains(where: { $0 is LoginVC }) else { return }
-```
-
-Both are wrong, in opposite directions, and the direction changed with 2.1.0:
-
-- `top is LoginVC` — a stage **covers** its root on `push`, so this reports the login as gone the moment anything is pushed over it. This shipped: a device sat logged-out with no way back, and the fix at the time was to refuse deep links while logged out, a workaround at one call site rather than a repair.
-- `children.contains { $0 is LoginVC }` — since 2.1.0 covered scenes stay parented, so this reports the login as **present** for as long as it is anywhere in the stack.
-
-Compare a stored intent. And note the corollary: any `children` query that means "what is on screen" is now wrong and should be `top`.
-
-### 2. A private copy of the stage lookup
-
-Three apps had independently defined `enclosingStage` on `UIViewController` — the same parent-chain walk `Stageable.stage` already shipped. All three are gone. If you are writing a loop over `parent`, stop; it exists. Note `stage` is on `Stageable`, not `UIViewController`, so a plain `UIViewController` nested inside a scene still needs the stage passed to it.
-
-### 3. Polling for the stage to settle
-
-```swift
-// WRONG
-guard !isTransitioning else {
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.reconcileRoot() }
-    return
-}
-```
-
-There were **ten** hand-rolled variants of this across four apps, in five different policies. Four used `0.6s` against a default transition of `0.45 + 0.35` — always firing early, always costing an extra hop, and both durations are overridable anyway.
-
-`setRoot` queues itself and applies on settle. For anything else, use `vcDidTransition()` and a latest-wins desired-state field. Never sleep, never poll, never guess a constant.
-
-### 4. Recording an intent before the scene exists
-
-```swift
-// WRONG
-installedRoot = desired
-guard let scene = makeScene(desired) else { return }
-```
-
-If the factory is failable — a storyboard lookup, an optional closure — this leaves the intent recorded with nothing installed. Every later reconcile then concludes the root already agrees, and the stage stays blank permanently.
-
-### 5. Asymmetric pre-install handling
-
-```swift
-// WRONG
-guard didInstallRoot else {
-    if !hasUser { pendingRoot = LoginVC() }   // ...and if hasUser?
-    return
-}
-```
-
-`viewIsAppearing` bails when `pendingRoot` is nil **without** setting `didInstallRoot`, and it does not fire again. Set both branches.
-
-### 6. Two spellings of identity
-
-One app's `reconcileRoot` read `Session.storage.loggedInUser` while its `viewIsAppearing` read `AppSession.hasPersistedIdentity`. Same value that day. That is exactly how two root decisions drift apart later.
-
-### 7. Blockers that discard instead of defer
-
-A non-identity root — a launch-time takeover screen — may legitimately veto the reconcile. It must leave the need recorded and consume it when it clears; otherwise an identity change arriving during the veto is swallowed, and recovery depends on the user happening to tap the right thing.
-
-### 8. Treating `setRoot` as a teardown mechanism
-
-Replacing the root drops the *in-memory projections* a session built, if nothing else retains them. It does not reclaim `@Prefs`/UserDefaults, statics, singletons, keychain, SwiftData or files; it does not cancel in-flight `Task`s; and `removeFromParent` is not `deinit`. Teardown that has to be **correct** belongs in one explicit pipeline, ordered against in-flight work. The root swap is a UI transition that happens to release some memory.
-
-### 9. Keeping a parallel copy of stage state
-
-`top` and `isTransitioning` are exposed so you do not have to. A `currentTop` field assigned from `vcWillTransition(to:)` reports the *incoming* scene while the outgoing one is still on screen.
+1. **Asking the view hierarchy what the root is.** `top is LoginVC` reports the login gone the moment anything covers it; `children.contains { $0 is LoginVC }` reports it present for as long as it is anywhere in the stack. Both shipped as bugs, in opposite directions. Compare a stored intent.
+2. **A private copy of the stage lookup.** Three apps independently wrote the `parent`-chain walk `Stageable.stage` already ships. If you're looping over `parent`, stop. (`stage` is on `Stageable`; a plain `UIViewController` nested inside a screen still needs the stage passed to it.)
+3. **Polling for the stage to settle.** Ten hand-rolled `asyncAfter` variants across four apps, in five policies, four of them tuned to durations that are overridable anyway. Use a command completion or `stageDidSettle()`. Never sleep, never poll, never guess a constant.
+4. **Recording an intent before the screen exists.** A failable factory after `installedRoot = desired` leaves the intent recorded with nothing installed — every later reconcile concludes the root already agrees, and the stage stays blank permanently.
+5. **Asymmetric pre-install handling.** `viewIsAppearing` bailing without setting `didInstallRoot` strands the stage: it does not fire again. Set it in both branches.
+6. **Two spellings of identity.** One app's reconcile read `Session.storage.loggedInUser` while its install path read `AppSession.hasPersistedIdentity`. Same value that day; that is exactly how two root decisions drift apart later.
+7. **Blockers that discard instead of defer.** A launch-time takeover may veto the reconcile, but it must leave the need recorded and consume it when it clears — otherwise an identity change during the veto is swallowed.
+8. **Treating `setRoot` as teardown.** It drops in-memory projections nothing else retains — it does not reclaim UserDefaults, statics, singletons, keychain or files, does not cancel in-flight `Task`s, and `removeFromParent` is not `deinit`. Correct teardown is one explicit pipeline; the root swap is a UI transition that happens to release some memory.
+9. **Keeping a parallel copy of stage state.** `top`, `depth` and `contains` are exposed so you don't have to. A `currentTop` field assigned from a transition hook reports the incoming screen while the outgoing one is still on screen.
 
 ---
 
-## Props
+## The callback order
 
-**Direction** — the view slides fully off an edge:
-
-```swift
-Prop(view, from: .top)
-Prop(view, from: .bottomRight, delay: 0.05)
-```
-
-`.top`, `.bottom`, `.left`, `.right`, `.topLeft`, `.topRight`, `.bottomLeft`, `.bottomRight`
-
-**Custom transform** — anything else:
-
-```swift
-Prop(view, transform: .init(scaleX: 0, y: 0))
-```
-
-Off-screen travel is measured in the **window's** coordinate space, so props inside inset containers, inner stages, and non-fullscreen windows (Split View, Stage Manager) all travel the correct distance.
-
-> `Prop.overlay` is currently **not read** by `StageVC`. Passing `overlay: false` behaves identically to the default. It is kept because several apps already pass it and its intended behaviour is an open product question.
-
----
-
-## Lifecycle hooks
-
-`Stageable` — all optional:
-
-| Method | Timing |
-|---|---|
-| `prepareForEntrance()` | Before entrance animations, and **before** the forced layout — so constraint changes made here take effect for the first frame. `UIView.animate` here runs concurrently with the props. |
-| `prepareForExit()` | Before exit animations. Kick off anything that cannot be a transform — a fade, a collapse. |
-| `didFinishEntrance()` | After every entrance animation completes. |
-
-`StageVC` — override to keep container chrome in sync:
-
-| Method | Timing |
-|---|---|
-| `vcWillTransition(from:)` | The outgoing scene is about to animate off. |
-| `vcWillTransition(to:)` | The incoming scene is about to animate on. Fires for the first scene too. |
-| `vcDidTransition()` | The stage has settled. **The settle event** — consume deferred work here. |
-
----
-
-## Container API
-
-| Member | Notes |
-|---|---|
-| `top: Stageable?` | The scene on top, or nil while empty. Updated when the stack mutates — after the exit animation on every path except the first install, which sets it synchronously. |
-| `isTransitioning: Bool` | True for the whole of any transition, including the first install. `setRoot` is **queued** while true and applied at the settle, latest-wins; `push`, `pop`, `replaceTop` and `popToRoot` are **dropped**. `popToRoot` still fires its completion when dropped, so the completion is not proof the pop happened. |
-| `props: [Prop]` | Container chrome. Stored, not computed — reassign it if the views change. |
-| `inDuration` / `outDuration` | `0.45` / `0.35`. Overridable. |
-
----
-
-## Files
+The full per-transition order — who is told what, when, including appearance forwarding, containment, and where chrome rides — is fixed by the A7 table in `docs/systems/frameworks/stageable-rebuild-plan.md` and enforced by `StageVCAppearanceTests`, which log-match every scenario against it.
 
 | File | Purpose |
 |---|---|
-| `StageVC.swift` | The container — navigation stack and animation engine |
-| `Stageable.swift` | The `Stageable` protocol, `stage` lookup, navigation conveniences |
+| `Navigator.swift` | The state machine — stack, queue, `Command` → `Plan`, `Exit`, `Outcome` |
+| `StageVC.swift` | The container — pump, phases, parking ledger, chrome, appearance |
+| `Stageable.swift` | The screen protocol, `stage` lookup, navigation conveniences |
+| `Chrome.swift` | `Chrome`, `Phase`, `StageObserver` |
 | `Prop.swift` | Declarative description of an animated view element |
