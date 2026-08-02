@@ -33,7 +33,7 @@ extension ProfileVC: Stageable {
 }
 ```
 
-`props` is evaluated at each transition, so it can vary with state.
+`props` is evaluated at each transition, so it can vary with state — but a view present at exit and absent at entrance keeps the off-screen transform that was baked into it, because only props in the array at entrance are reset. Reset it yourself, or keep the view in the array and vary something else.
 
 ### 2. Navigate
 
@@ -46,7 +46,9 @@ popToRoot()             // back to the stage root
 replaceTop(NextVC())    // swap in place; the stack does not grow
 ```
 
-Valid from **any** scene in the stack, not just the visible one — a covered scene keeps its parent, so `stage` resolves for it.
+`stage` resolves from **any** scene in the stack, not just the visible one — a covered scene keeps its parent.
+
+> But `pop()` and `replaceTop(_:)` act on the stage's **top**, not on the caller. From a covered scene they will dismiss or replace whatever the user is actually looking at. Call them only from the visible scene.
 
 ### 3. Subclass `StageVC` for your app's container
 
@@ -65,7 +67,7 @@ Override `vcWillTransition(from:)`, `vcWillTransition(to:)` and `vcDidTransition
 
 ## Adopting it correctly
 
-Seven apps run this. The steps below are what they converged on; **Smells** is what they each got wrong first.
+Seven apps run this. Step 1 is the only one all seven follow today; the rest are where the fleet is heading, and several apps still deviate. **Smells** is what they each got wrong first.
 
 ### 1. The window root is the stage, and it never changes
 
@@ -89,8 +91,11 @@ private var didInstallRoot = false
 
 override func viewIsAppearing(_ animated: Bool) {
     super.viewIsAppearing(animated)
-    guard !didInstallRoot, let root = pendingRoot else { return }
+    guard !didInstallRoot else { return }
+    // Mark the slot used the first time we appear, staged root or not — this
+    // does not fire again, and bailing without setting it strands the stage.
     didInstallRoot = true
+    guard let root = pendingRoot else { reconcileRoot(); return }
     pendingRoot = nil
     setRoot(root)
 }
@@ -153,13 +158,16 @@ guard hasUser == (top is LoginVC) else { return }
 guard hasUser == children.contains(where: { $0 is LoginVC }) else { return }
 ```
 
-A stage **covers** its root on `push`. Push anything over the login screen and the view query reports the login as gone, so the reconcile concludes the root already agrees and never restores it. This shipped: a device sat logged-out with no way back, and the fix at the time was to refuse deep links while logged out — a workaround at one call site, not a repair.
+Both are wrong, in opposite directions, and the direction changed with 2.1.0:
 
-Compare a stored intent.
+- `top is LoginVC` — a stage **covers** its root on `push`, so this reports the login as gone the moment anything is pushed over it. This shipped: a device sat logged-out with no way back, and the fix at the time was to refuse deep links while logged out, a workaround at one call site rather than a repair.
+- `children.contains { $0 is LoginVC }` — since 2.1.0 covered scenes stay parented, so this reports the login as **present** for as long as it is anywhere in the stack.
+
+Compare a stored intent. And note the corollary: any `children` query that means "what is on screen" is now wrong and should be `top`.
 
 ### 2. A private copy of the stage lookup
 
-Three apps independently defined `enclosingStage` on `UIViewController` — the same parent-chain walk `Stageable.stage` already ships. If you are writing a loop over `parent`, stop; it exists.
+Three apps had independently defined `enclosingStage` on `UIViewController` — the same parent-chain walk `Stageable.stage` already shipped. All three are gone. If you are writing a loop over `parent`, stop; it exists. Note `stage` is on `Stageable`, not `UIViewController`, so a plain `UIViewController` nested inside a scene still needs the stage passed to it.
 
 ### 3. Polling for the stage to settle
 
@@ -244,7 +252,7 @@ Off-screen travel is measured in the **window's** coordinate space, so props ins
 
 | Method | Timing |
 |---|---|
-| `prepareForEntrance()` | After layout, before entrance animations. Configure initial state; `UIView.animate` here runs concurrently with the props. |
+| `prepareForEntrance()` | Before entrance animations, and **before** the forced layout — so constraint changes made here take effect for the first frame. `UIView.animate` here runs concurrently with the props. |
 | `prepareForExit()` | Before exit animations. Kick off anything that cannot be a transform — a fade, a collapse. |
 | `didFinishEntrance()` | After every entrance animation completes. |
 
@@ -262,8 +270,8 @@ Off-screen travel is measured in the **window's** coordinate space, so props ins
 
 | Member | Notes |
 |---|---|
-| `top: Stageable?` | The scene on top, or nil while empty. Updated when the stack mutates, i.e. after the exit animation. |
-| `isTransitioning: Bool` | True for the whole of any transition, including the first install. Navigation is deferred (`setRoot`) or dropped (`push`/`pop`) while true. |
+| `top: Stageable?` | The scene on top, or nil while empty. Updated when the stack mutates — after the exit animation on every path except the first install, which sets it synchronously. |
+| `isTransitioning: Bool` | True for the whole of any transition, including the first install. `setRoot` is **queued** while true and applied at the settle, latest-wins; `push`, `pop`, `replaceTop` and `popToRoot` are **dropped**. `popToRoot` still fires its completion when dropped, so the completion is not proof the pop happened. |
 | `props: [Prop]` | Container chrome. Stored, not computed — reassign it if the views change. |
 | `inDuration` / `outDuration` | `0.45` / `0.35`. Overridable. |
 
