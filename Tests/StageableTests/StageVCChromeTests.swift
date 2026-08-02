@@ -23,6 +23,11 @@ final class StageVCChromeTests: XCTestCase {
         super.setUp()
         stage = StageVC()
         stage.view.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
+        // Synchronous stub: these tests are about presence, not the clock.
+        stage.animate = { _, _, _, animations, completion in
+            animations()
+            completion()
+        }
         applied = []
     }
 

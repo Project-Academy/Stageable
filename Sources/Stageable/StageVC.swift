@@ -34,6 +34,67 @@ open class StageVC: UIViewController {
     private var draining = false
 
     //--------------------------------------
+    // MARK: - TIMING -
+    //--------------------------------------
+
+    /// Duration of the exit phase. Defaults lifted from 2.2.0.
+    public var exitDuration: TimeInterval = 0.35
+
+    /// Duration of the enter phase.
+    public var enterDuration: TimeInterval = 0.45
+
+    /**
+     The animation primitive every phase runs on: one spring, one delay, one
+     completion. Internal so tests can substitute a stub — F6 is a claim about
+     completion topology, not about the clock.
+     */
+    var animate: (_ duration: TimeInterval, _ delay: TimeInterval, _ bounce: CGFloat,
+                  _ animations: @escaping () -> Void,
+                  _ completion: @escaping () -> Void) -> Void = { duration, delay, bounce, animations, completion in
+        let animator = UIViewPropertyAnimator(
+            duration: duration,
+            timingParameters: UISpringTimingParameters(duration: duration, bounce: bounce,
+                                                       initialVelocity: .zero))
+        animator.addAnimations(animations)
+        animator.addCompletion { _ in completion() }
+        animator.startAnimation(afterDelay: delay)
+    }
+
+    /// One view, one destination, one stagger delay — a phase is N of these.
+    private struct Move {
+        let view: UIView
+        let target: CGAffineTransform
+        let delay: TimeInterval
+    }
+
+    /**
+     Run one phase: start every animator, call `completion` when the last one
+     completes. A phase with no animators takes no time — `completion` runs
+     synchronously and ``animate`` is never touched (F6).
+     */
+    private func runPhase(_ phase: Phase, moves: [Move],
+                          chrome chromeRiding: [Chrome], chromePresent: Bool,
+                          completion: @escaping () -> Void) {
+        var animators: [(delay: TimeInterval, animations: () -> Void)] = moves.map { move in
+            (move.delay, { move.view.transform = move.target })
+        }
+        if !chromeRiding.isEmpty {
+            animators.append((0, { self.applyChrome(chromeRiding, present: chromePresent) }))
+        }
+        guard !animators.isEmpty else { return completion() }
+
+        let duration = phase == .exit ? exitDuration : enterDuration
+        let bounce: CGFloat = phase == .exit ? 0 : 0.1
+        var remaining = animators.count
+        for entry in animators {
+            animate(duration, entry.delay, bounce, entry.animations) {
+                remaining -= 1
+                if remaining == 0 { completion() }
+            }
+        }
+    }
+
+    //--------------------------------------
     // MARK: - READING THE STAGE -
     //--------------------------------------
 
@@ -203,24 +264,34 @@ open class StageVC: UIViewController {
     private struct ParkRecord {
         let view: UIView
         let restore: CGAffineTransform
+        let delay: TimeInterval
     }
     private var ledger: [ObjectIdentifier: [ParkRecord]] = [:]
 
-    /// Read the screen's props NOW, record what each view has, move it off.
-    /// Parking twice would record the parked value as the restore value — the
-    /// ledger refuses: an existing entry stands.
-    private func park(_ screen: any Stageable) {
+    /// Read the screen's props NOW and record what each view has. Returns the
+    /// off-screen moves — the caller either animates them (exit phase) or
+    /// applies them bare (the seam). Parking twice would record the parked
+    /// value as the restore value — the ledger refuses: an existing entry stands.
+    private func parkRecording(_ screen: any Stageable) -> [Move] {
         let key = ObjectIdentifier(screen)
-        guard ledger[key] == nil else { return }
+        guard ledger[key] == nil else { return [] }
+        var moves: [Move] = []
         ledger[key] = screen.props.map { prop in
-            let record = ParkRecord(view: prop.view, restore: prop.view.transform)
-            prop.view.transform = prop.offScreenTransform()
-            return record
+            moves.append(Move(view: prop.view, target: prop.offScreenTransform(), delay: prop.delay))
+            return ParkRecord(view: prop.view, restore: prop.view.transform, delay: prop.delay)
         }
+        return moves
     }
 
-    /// Put every parked view back to its recorded value and settle the entry.
-    /// Restoring a screen with no entry is a no-op, not an error.
+    /// The moves that bring a parked screen's views back to their recorded
+    /// values. The entry is settled separately, when those moves have landed.
+    private func restoreMoves(_ screen: any Stageable) -> [Move] {
+        guard let records = ledger[ObjectIdentifier(screen)] else { return [] }
+        return records.map { Move(view: $0.view, target: $0.restore, delay: $0.delay) }
+    }
+
+    /// Put every parked view back to its recorded value, bare, and settle the
+    /// entry. Restoring a screen with no entry is a no-op, not an error.
     private func restore(_ screen: any Stageable) {
         guard let records = ledger.removeValue(forKey: ObjectIdentifier(screen)) else { return }
         for record in records { record.view.transform = record.restore }
@@ -256,21 +327,26 @@ open class StageVC: UIViewController {
         // Steps 1–5 exist only when something is leaving. First install skips
         // them — its chrome has no exit phase to ride, so it reconciles bare
         // before the seam (absent chrome must not appear over the first screen).
-        if outgoing == nil {
+        guard let outgoing else {
             applyChrome(chromeRiding.absent, present: false)
             applyChrome(chromeRiding.present, present: true)
+            enterThroughSeam(from: nil, incoming: incoming, adopting: adopting,
+                             chromeEntering: [], completion: completion)
+            return
         }
-        if let outgoing {
-            emitWillBegin(.exit, from: outgoing, to: incoming)                  // 1
-            outgoing.willExit(exit)                                             // 2
-            for screen in alsoLeaving { screen.willExit(.removed) }
 
-            // 3 (appearance) — task 15.
-            // 4: exit animators — task 14, riding: chrome becoming absent.
-            // Degenerate case: park and remove immediately. A covered screen's
-            // entry outlives this transition.
-            park(outgoing)
-            applyChrome(chromeRiding.absent, present: false)
+        emitWillBegin(.exit, from: outgoing, to: incoming)                      // 1
+        outgoing.willExit(exit)                                                 // 2
+        for screen in alsoLeaving { screen.willExit(.removed) }
+
+        // 3 (appearance) — task 15.
+        // 4: the exit phase — the outgoing screen's props park, and chrome
+        // becoming absent rides along. A covered screen's ledger entry
+        // outlives this transition; the pop back restores it.
+        let parkingMoves = parkRecording(outgoing)
+        runPhase(.exit, moves: parkingMoves,
+                 chrome: chromeRiding.absent, chromePresent: false) { [weak self] in
+            guard let self else { return }
             outgoing.view.removeFromSuperview()
 
             outgoing.didExit(exit)                                              // 5
@@ -279,21 +355,28 @@ open class StageVC: UIViewController {
                 screen.willMove(toParent: nil)
                 screen.removeFromParent()
                 screen.didExit(.removed)
-                restore(screen)         // A4: leaving for good, put it all back
+                self.restore(screen)    // A4: leaving for good, put it all back
             }
             if exit == .removed {
                 outgoing.willMove(toParent: nil)
                 outgoing.removeFromParent()
-                restore(outgoing)       // A4
+                self.restore(outgoing)  // A4
             }
-            emitDidEnd(.exit)
-        }
+            self.emitDidEnd(.exit)
 
-        // 6 — the seam, in A7's exact order. Chrome (task 13) joins here.
-        // Transform is reset before frame, or the translation is baked into
-        // `center`; parked views are restored before layout, or a covered
-        // screen's parked transform corrupts the frame the new park distance
-        // is measured from.
+            self.enterThroughSeam(from: outgoing, incoming: incoming, adopting: adopting,
+                                  chromeEntering: chromeRiding.present, completion: completion)
+        }
+    }
+
+    /// A7 steps 6–9: the seam, the enter phase, the landing.
+    private func enterThroughSeam(from outgoing: (any Stageable)?, incoming: any Stageable,
+                                  adopting: Bool, chromeEntering: [Chrome],
+                                  completion: ((Outcome) -> Void)?) {
+        // 6 — the seam, in A7's exact order. Transform is reset before frame,
+        // or the translation is baked into `center`; parked views are restored
+        // before layout, or a covered screen's parked transform corrupts the
+        // frame the new park distance is measured from.
         view.addSubview(incoming.view)
         incoming.view.transform = .identity
         incoming.view.frame = view.bounds
@@ -303,19 +386,26 @@ open class StageVC: UIViewController {
         emitWillBegin(.enter, from: outgoing, to: incoming)
         incoming.willEnter()
         incoming.view.layoutIfNeeded()
-        park(incoming)
 
-        // 7: enter animators — task 14, riding: chrome becoming present.
-        // Degenerate case: the entrance lands immediately, which IS the restore.
-        applyChrome(chromeRiding.present, present: true)
-        restore(incoming)
+        // Read props and park them: record, then jump off-screen bare — the
+        // audience only ever sees the entrance.
+        let parkingMoves = parkRecording(incoming)
+        for move in parkingMoves { move.view.transform = move.target }
 
-        // 8.
-        if adopting { incoming.didMove(toParent: self) }
-        incoming.didEnter()
-        emitDidEnd(.enter)
+        // 7: the enter phase — everything parked comes back to its recorded
+        // value, and chrome becoming present rides along.
+        runPhase(.enter, moves: restoreMoves(incoming),
+                 chrome: chromeEntering, chromePresent: true) { [weak self] in
+            guard let self else { return }
+            self.ledger.removeValue(forKey: ObjectIdentifier(incoming))    // settled by the phase
 
-        land(completion)                                                        // 9
+            // 8.
+            if adopting { incoming.didMove(toParent: self) }
+            incoming.didEnter()
+            self.emitDidEnd(.enter)
+
+            self.land(completion)                                           // 9
+        }
     }
 
     private func strike(screens: [any Stageable], completion: ((Outcome) -> Void)?) {
