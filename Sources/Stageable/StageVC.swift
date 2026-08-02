@@ -339,7 +339,10 @@ open class StageVC: UIViewController {
         outgoing.willExit(exit)                                                 // 2
         for screen in alsoLeaving { screen.willExit(.removed) }
 
-        // 3 (appearance) — task 15.
+        // 3 — appearance, gated on the container's own visibility (D9).
+        let forwarding = containerVisible
+        if forwarding { outgoing.beginAppearanceTransition(false, animated: true) }
+
         // 4: the exit phase — the outgoing screen's props park, and chrome
         // becoming absent rides along. A covered screen's ledger entry
         // outlives this transition; the pop back restores it.
@@ -348,6 +351,7 @@ open class StageVC: UIViewController {
                  chrome: chromeRiding.absent, chromePresent: false) { [weak self] in
             guard let self else { return }
             outgoing.view.removeFromSuperview()
+            if forwarding { outgoing.endAppearanceTransition() }
 
             outgoing.didExit(exit)                                              // 5
             for screen in alsoLeaving {
@@ -383,6 +387,8 @@ open class StageVC: UIViewController {
         incoming.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         raiseChrome()
         restore(incoming)
+        let forwarding = containerVisible                                   // D9
+        if forwarding { incoming.beginAppearanceTransition(true, animated: true) }
         emitWillBegin(.enter, from: outgoing, to: incoming)
         incoming.willEnter()
         incoming.view.layoutIfNeeded()
@@ -400,6 +406,7 @@ open class StageVC: UIViewController {
             self.ledger.removeValue(forKey: ObjectIdentifier(incoming))    // settled by the phase
 
             // 8.
+            if forwarding { incoming.endAppearanceTransition() }
             if adopting { incoming.didMove(toParent: self) }
             incoming.didEnter()
             self.emitDidEnd(.enter)
@@ -435,6 +442,49 @@ open class StageVC: UIViewController {
             }
             emitDidSettle()
         }
+    }
+
+    //--------------------------------------
+    // MARK: - APPEARANCE (A7 / D5 / D9) -
+    //--------------------------------------
+    /**
+     UIKit forwards appearance on containment, and a covered screen keeps its
+     parent — so automatic forwarding cannot deliver `viewWillDisappear` to a
+     screen whose view leaves while it stays a child. The container therefore
+     owns ALL child appearance.
+     */
+    open override var shouldAutomaticallyForwardAppearanceMethods: Bool { false }
+
+    /**
+     Whether the container itself is on screen — between its own
+     `viewWillAppear` and `viewDidDisappear`.
+
+     Child appearance is delivered only while true (D9): a screen pushed into
+     an off-screen container gets its appearance when the container appears,
+     via the forwarding below — not at the push, which would double-deliver.
+     */
+    private var containerVisible = false
+
+    open override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        containerVisible = true
+        top?.beginAppearanceTransition(true, animated: animated)
+    }
+
+    open override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        top?.endAppearanceTransition()
+    }
+
+    open override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        top?.beginAppearanceTransition(false, animated: animated)
+    }
+
+    open override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        top?.endAppearanceTransition()
+        containerVisible = false
     }
 
     //--------------------------------------
