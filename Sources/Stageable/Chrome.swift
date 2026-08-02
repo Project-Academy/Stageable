@@ -35,8 +35,22 @@ public enum Phase: Sendable {
  */
 public struct Chrome {
 
+    /// When a chrome's `apply` runs.
+    public enum Riding: Sendable {
+        /// Only when `isPresent`'s answer changes (the default). Chrome present
+        /// on both sides of a transition is not touched.
+        case presenceChanges
+        /// Every transition while present: off with the outgoing screen, back
+        /// with the incoming one — ride-along chrome that moves with each
+        /// scene change. Absent chrome still reconciles normally.
+        case everyTransition
+    }
+
     /// The view the rule governs. The container keeps it above the screens.
     public let view: UIView
+
+    /// When `apply` runs — see ``Riding``.
+    public let riding: Riding
 
     /// The rule. Read the stage — `top`, `depth`, `contains` — not the view
     /// hierarchy; during a transition these already describe the destination.
@@ -48,9 +62,11 @@ public struct Chrome {
     public let apply: @MainActor (Bool) -> Void
 
     public init(_ view: UIView,
+                riding: Riding = .presenceChanges,
                 isPresent: @escaping @MainActor (StageVC) -> Bool,
                 apply: @escaping @MainActor (Bool) -> Void) {
         self.view = view
+        self.riding = riding
         self.isPresent = isPresent
         self.apply = apply
     }
@@ -58,8 +74,9 @@ public struct Chrome {
     /// A chrome whose `apply` is derived from a prop: present is `.identity`,
     /// absent is the prop's off-screen transform.
     @MainActor
-    public init(_ prop: Prop, isPresent: @escaping @MainActor (StageVC) -> Bool) {
-        self.init(prop.view, isPresent: isPresent) { present in
+    public init(_ prop: Prop, riding: Riding = .presenceChanges,
+                isPresent: @escaping @MainActor (StageVC) -> Bool) {
+        self.init(prop.view, riding: riding, isPresent: isPresent) { present in
             prop.view.transform = present ? .identity : prop.offScreenTransform()
         }
     }

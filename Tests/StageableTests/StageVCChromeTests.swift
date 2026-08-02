@@ -10,7 +10,8 @@ import XCTest
 @testable import Stageable
 
 private final class Screen: UIViewController, Stageable {
-    var props: [Prop] { [] }
+    var propViews: [UIView] = []
+    var props: [Prop] { propViews.map { Prop($0, from: .bottom) } }
 }
 
 @MainActor
@@ -132,6 +133,59 @@ final class StageVCChromeTests: XCTestCase {
         subviews = stage.view.subviews
         XCTAssertGreaterThan(try XCTUnwrap(subviews.firstIndex(of: header)),
                              try XCTUnwrap(subviews.firstIndex(of: a.view)))
+    }
+
+    // MARK: - Ride-along chrome (D1 revised): every transition while present
+
+    func testEveryTransitionChromeRidesBothPhasesWhilePresent() {
+        let bar = UIView()
+        stage.setChrome([Chrome(bar, riding: .everyTransition, isPresent: { _ in true },
+                                apply: { [self] in applied.append($0) })])
+        XCTAssertEqual(applied, [true], "installed present")
+
+        applied = []
+        stage.push(Screen())                // first install: no exit phase, no change
+        XCTAssertEqual(applied, [])
+
+        stage.push(Screen())
+        XCTAssertEqual(applied, [false, true], "off with the outgoing, back with the incoming")
+
+        applied = []
+        stage.pop()
+        XCTAssertEqual(applied, [false, true])
+    }
+
+    // MARK: - setChrome mid-transition defers to settle
+
+    func testSetChromeMidTransitionAppliesAtSettle() {
+        var applies: [String] = []
+        let first = UIView(), second = UIView()
+        stage.setChrome([Chrome(first, isPresent: { _ in true }, apply: { applies.append("first:\($0)") })])
+        applies = []
+
+        // Hold the transition open: swap the animator for one that never completes.
+        var heldCompletion: (() -> Void)?
+        stage.animate = { _, _, _, animations, completion in
+            animations()
+            heldCompletion = completion
+        }
+        let a = Screen()
+        let prop = UIView(frame: CGRect(x: 0, y: 0, width: 50, height: 50))
+        a.view.addSubview(prop)
+        a.propViews = [prop]
+        stage.push(a)
+        XCTAssertNotNil(heldCompletion, "transition is in flight")
+
+        stage.setChrome([Chrome(second, isPresent: { _ in true }, apply: { applies.append("second:\($0)") })])
+        XCTAssertEqual(applies, [], "deferred: the in-flight transition's chrome plan stands")
+        XCTAssertNil(second.superview)
+
+        heldCompletion?()                   // land it
+        // `first` was last applied present, so its departing restore is a
+        // no-op; the new set reconciles.
+        XCTAssertEqual(applies, ["second:true"], "the pending set installs at settle")
+        XCTAssertNil(first.superview)
+        XCTAssertTrue(second.superview === stage.view)
     }
 
     // MARK: - refreshChrome mid-transition defers to settle

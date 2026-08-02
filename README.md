@@ -35,7 +35,7 @@ extension ProfileVC: Stageable {
 }
 ```
 
-Direction props (`.top`, `.bottom`, `.left`, `.right`, and the corners) slide fully off their **superview**; `Prop(view, transform:)` expresses anything else. Off-screen travel is measured in the superview's space, so props inside inset containers, inner stages, and non-fullscreen windows all travel the correct distance.
+Direction props (`.top`, `.bottom`, `.left`, `.right`, and the corners) slide fully off their **superview**; `Prop(view, transform:)` expresses anything else. Off-screen travel is measured in the superview's space, so props inside inset containers, inner stages, and non-fullscreen windows all travel the correct distance. `overlay:` is app-readable metadata the engine ignores — filter your own `props` declaration with it (e.g. a focus mode) instead of keeping a parallel list that can drift.
 
 `props` is read at each transition's seam, so it can vary with state. The stage restores parked views from its own ledger — a screen whose `props` changed while covered still gets every originally-parked view put back.
 
@@ -91,6 +91,8 @@ stage.setChrome([
 
 The stage reconciles: `isPresent` is evaluated against the **destination** state on every transition, `apply` runs only when the answer changed, and the change rides the phase its direction implies — becoming absent leaves with the outgoing screen, becoming present arrives with the incoming one. `apply` sets values, never animates; the stage calls it inside its own animator, or bare when there is no phase to ride (first install, strikes, `refreshChrome()`). For rules that read state outside the stage, call `refreshChrome()`.
 
+Ride-along chrome — a view that should move with *every* scene change, not just when its presence flips — declares `riding: .everyTransition`: while present it leaves with each outgoing screen and returns with each incoming one. Both `setChrome` and `refreshChrome` defer to settle if called mid-transition (latest wins).
+
 ### Stage hooks
 
 A subclass overrides; a host that *owns* a stage observes (weakly) instead:
@@ -104,7 +106,7 @@ class Shell: StageVC {
 // or: stage.addObserver(self)          // StageObserver
 ```
 
-Read state from the stage, never the view hierarchy: `top`, `depth`, `contains(_:)` — all describe the **destination** during a transition.
+Read state from the stage, never the view hierarchy: `top`, `depth`, `contains(_:)` — all describe the **destination** during a transition. `isTransitioning` exists for tap-guards (a double-tapped close button is two honest pops without one); never poll it — anything that waits belongs on a completion or `stageDidSettle()`.
 
 ---
 

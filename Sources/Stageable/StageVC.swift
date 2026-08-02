@@ -107,6 +107,11 @@ open class StageVC: UIViewController {
     /// Whether the screen is in the destination stack.
     public func contains(_ screen: any Stageable) -> Bool { navigator.contains(screen) }
 
+    /// Whether a plan is in flight. Exposed for tap-guards — a double-tapped
+    /// close button is two honest pops without one. Never poll this; anything
+    /// that waits belongs on a command completion or ``stageDidSettle()``.
+    public var isTransitioning: Bool { inFlight }
+
     //--------------------------------------
     // MARK: - COMMANDS -
     //--------------------------------------
@@ -149,23 +154,48 @@ open class StageVC: UIViewController {
     //--------------------------------------
     // MARK: - THE PUMP -
     //--------------------------------------
+    /// A plan has landed since the last settle — set by `land()`, consumed at
+    /// the pump's single exit. Settle is decided in exactly one place, or an
+    /// async landing that drains synchronous plans settles once per plan.
+    private var landedSinceSettle = false
+
     /**
      One drain (plan D4): gated on in-flight AND re-entrancy, and it loops.
 
      A synchronous transition — no animators, under F6 — lands inside `perform`,
      whose own step-9 drain is the re-entrant call swallowed by `draining`; the
-     outer loop then continues, so nothing strands in the queue.
+     outer loop then continues, so nothing strands in the queue. A completion
+     that navigates on a nil-plan pass refills the queue the same way — the loop
+     goes round again rather than breaking on "no plan".
+
+     The end of this loop is the pump's ONLY exit, so it is the one place that
+     decides settle: a plan landed, the queue is empty, nothing is in flight.
+     The flag drops before the emit so a settle handler that navigates re-enters
+     a fresh pump.
      */
     private func drain() {
         guard !inFlight, !draining else { return }
         draining = true
-        defer { draining = false }
 
         while !inFlight {
             let (plan, settled) = navigator.next()
             for (command, outcome) in settled { command.completion?(outcome) }
-            guard let plan else { break }
-            perform(plan)
+            if let plan { perform(plan); continue }
+            if navigator.queue.isEmpty { break }
+        }
+        draining = false
+
+        if landedSinceSettle, !inFlight, navigator.queue.isEmpty {
+            landedSinceSettle = false
+            if let pending = pendingChrome {
+                pendingChrome = nil
+                installChrome(pending)
+            }
+            if chromeRefreshPending {
+                chromeRefreshPending = false
+                reconcileChrome()
+            }
+            emitDidSettle()
         }
     }
 
@@ -188,10 +218,20 @@ open class StageVC: UIViewController {
     /// A `refreshChrome()` that arrived mid-transition, honoured at settle.
     private var chromeRefreshPending = false
 
+    /// A `setChrome` that arrived mid-transition, honoured at settle (latest
+    /// wins). Applying immediately would strand the in-flight transition's
+    /// captured chrome plan against a record it no longer describes.
+    private var pendingChrome: [Chrome]?
+
     /// Replaces the chrome set. A departing chrome is put back first (A4): a
     /// chrome the container last applied absent is applied present again before
-    /// its view leaves the stage.
+    /// its view leaves the stage. During a transition, deferred to settle.
     public func setChrome(_ newChrome: [Chrome]) {
+        guard !inFlight else { pendingChrome = newChrome; return }
+        installChrome(newChrome)
+    }
+
+    private func installChrome(_ newChrome: [Chrome]) {
         let newKeys = Set(newChrome.map { ObjectIdentifier($0.view) })
         for old in chrome where !newKeys.contains(ObjectIdentifier(old.view)) {
             let key = ObjectIdentifier(old.view)
@@ -227,14 +267,21 @@ open class StageVC: UIViewController {
     }
 
     /// The changes this transition must carry, split by the phase they ride.
-    /// Evaluated once — the destination is fixed from plan-issue.
-    private func chromeChanges() -> (absent: [Chrome], present: [Chrome]) {
+    /// Evaluated once — the destination is fixed from plan-issue. When the
+    /// transition has phases (`ridingPhases`), a present `.everyTransition`
+    /// chrome rides both: off with the outgoing screen, back with the incoming
+    /// one (D1, revised). A first install has no exit phase and nothing rides.
+    private func chromeChanges(ridingPhases: Bool) -> (absent: [Chrome], present: [Chrome]) {
         var absent: [Chrome] = [], present: [Chrome] = []
         for item in chrome {
             let key = ObjectIdentifier(item.view)
             let desired = item.isPresent(self)
-            guard chromePresence[key] != desired else { continue }
-            if desired { present.append(item) } else { absent.append(item) }
+            if chromePresence[key] != desired {
+                if desired { present.append(item) } else { absent.append(item) }
+            } else if ridingPhases, desired, item.riding == .everyTransition {
+                absent.append(item)
+                present.append(item)
+            }
         }
         return (absent, present)
     }
@@ -317,12 +364,16 @@ open class StageVC: UIViewController {
                             completion: ((Outcome) -> Void)?) {
         // Adopt at plan-issue — and only if not already a child: re-adopting a
         // covered screen would open a second `willMove` and fire `didMove` twice.
+        // A screen parented ELSEWHERE is refused loudly: silently stealing it
+        // corrupts UIKit containment on both containers.
+        precondition(incoming.parent == nil || incoming.parent === self,
+                     "Stageable: pushing a screen that is already parented to another container")
         let adopting = incoming.parent !== self
         if adopting { addChild(incoming) }
 
         // The chrome this transition carries, split by the phase each change
         // rides. Evaluated once — the destination is fixed from plan-issue.
-        let chromeRiding = chromeChanges()
+        let chromeRiding = chromeChanges(ridingPhases: outgoing != nil)
 
         // Steps 1–5 exist only when something is leaving. First install skips
         // them — its chrome has no exit phase to ride, so it reconciles bare
@@ -382,6 +433,7 @@ open class StageVC: UIViewController {
         // before layout, or a covered screen's parked transform corrupts the
         // frame the new park distance is measured from.
         view.addSubview(incoming.view)
+        onScreen = incoming
         incoming.view.transform = .identity
         incoming.view.frame = view.bounds
         incoming.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -430,18 +482,13 @@ open class StageVC: UIViewController {
         land(completion)
     }
 
-    /// A7 step 9: the one place a plan stops being in flight.
+    /// A7 step 9: the one place a plan stops being in flight. Settle itself is
+    /// decided by the pump — landing inside an outer drain defers to it.
     private func land(_ completion: ((Outcome) -> Void)?) {
         inFlight = false
+        landedSinceSettle = true
         completion?(.performed)
         drain()
-        if !inFlight, navigator.queue.isEmpty {
-            if chromeRefreshPending {
-                chromeRefreshPending = false
-                reconcileChrome()
-            }
-            emitDidSettle()
-        }
     }
 
     //--------------------------------------
@@ -465,25 +512,31 @@ open class StageVC: UIViewController {
      */
     private var containerVisible = false
 
+    /// The screen whose view is installed right now — unlike ``top``, which is
+    /// the destination. Container-level forwarding targets what the user
+    /// actually sees (D10): during an exit phase that is still the outgoing
+    /// screen, whose view is the one on stage.
+    private weak var onScreen: (any Stageable)?
+
     open override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         containerVisible = true
-        top?.beginAppearanceTransition(true, animated: animated)
+        onScreen?.beginAppearanceTransition(true, animated: animated)
     }
 
     open override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        top?.endAppearanceTransition()
+        onScreen?.endAppearanceTransition()
     }
 
     open override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        top?.beginAppearanceTransition(false, animated: animated)
+        onScreen?.beginAppearanceTransition(false, animated: animated)
     }
 
     open override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        top?.endAppearanceTransition()
+        onScreen?.endAppearanceTransition()
         containerVisible = false
     }
 

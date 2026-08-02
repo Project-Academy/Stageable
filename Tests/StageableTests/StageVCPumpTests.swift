@@ -109,6 +109,34 @@ final class StageVCPumpTests: XCTestCase {
         XCTAssertTrue(stage.top === b)
     }
 
+    // MARK: - A command from a noop/discarded completion is not stranded
+
+    func testNavigatingFromANoopCompletionDrains() {
+        let a = screen(props: 0), b = screen(props: 0)
+        stage.push(a)
+
+        stage.pop { [self] outcome in
+            XCTAssertEqual(outcome, .noop)
+            stage.push(b)               // enqueued on a nil-plan pass
+        }
+
+        XCTAssertEqual(b.entered, 1, "the drain must go round again, not break on no-plan")
+        XCTAssertTrue(stage.top === b)
+    }
+
+    func testNavigatingFromADiscardedCompletionDrains() {
+        let a = screen(props: 0), b = screen(props: 0)
+        stage.push(a)
+
+        stage.push(a) { [self] outcome in   // duplicate: discarded
+            XCTAssertEqual(outcome, .discarded)
+            stage.push(b)
+        }
+
+        XCTAssertEqual(b.entered, 1)
+        XCTAssertTrue(stage.top === b)
+    }
+
     // MARK: - Settle defers to the plan a completion caused
 
     func testSettleWaitsForThePlanACompletionCaused() {
@@ -124,5 +152,26 @@ final class StageVCPumpTests: XCTestCase {
 
         XCTAssertEqual(counter.settles, 1, "one settle, after b — not one per plan")
         XCTAssertTrue(stage.top === b)
+    }
+
+    func testAsyncLandingThatDrainsSyncPlansSettlesOnce() {
+        final class SettleCounter: StageObserver {
+            var settles = 0
+            func stageDidSettle() { settles += 1 }
+        }
+        let counter = SettleCounter()
+        stage.addObserver(counter)
+
+        // x lands asynchronously; a and b then drain as synchronous plans
+        // inside x's landing. Settle is decided once, at the pump's exit —
+        // not once per nested landing.
+        let x = screen(props: 1), a = screen(props: 0), b = screen(props: 0)
+        stage.push(x)
+        stage.push(a)
+        stage.push(b)
+        while !held.isEmpty { fireHeld() }
+
+        XCTAssertTrue(stage.top === b)
+        XCTAssertEqual(counter.settles, 1, "N sync plans drained by an async landing: one settle")
     }
 }

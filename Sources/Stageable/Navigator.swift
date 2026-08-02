@@ -66,15 +66,6 @@ public enum Command {
         case .pop(let c), .popToRoot(let c): return c
         }
     }
-
-    /// The screen this command names, if any. The container needs it to know
-    /// whom it adopted on enqueue and whom it may release on discard.
-    var screen: (any Stageable)? {
-        switch self {
-        case .push(let s, _), .replaceTop(let s, _), .setRoot(let s, _): return s
-        case .pop, .popToRoot: return nil
-        }
-    }
 }
 
 //--------------------------------------

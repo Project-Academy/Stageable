@@ -26,7 +26,8 @@ private final class LogScreen: UIViewController, Stageable {
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    var props: [Prop] { [] }        // propless: every phase takes no time (F6)
+    var propViews: [UIView] = []    // propless by default: phases take no time (F6)
+    var props: [Prop] { propViews.map { Prop($0, from: .bottom) } }
     func willEnter() { sink("\(name).willEnter") }
     func didEnter() { sink("\(name).didEnter") }
     func willExit(_ exit: Exit) { sink("\(name).willExit(\(exit))") }
@@ -220,6 +221,34 @@ final class StageVCAppearanceTests: XCTestCase {
 
         appear(stage)
         XCTAssertEqual(sink.log, ["a.viewWillAppear", "a.viewDidAppear"])
+    }
+
+    // MARK: - D10: container appearance targets the screen actually on stage
+
+    func testContainerDisappearanceMidExitTargetsTheOutgoingScreen() {
+        stage.push(a); _ = sink.drain()
+
+        // Give a a prop so b's exit phase holds; hold the animator open.
+        let prop = UIView(frame: CGRect(x: 0, y: 0, width: 50, height: 50))
+        a.view.addSubview(prop)
+        a.propViews = [prop]
+        var heldCompletion: (() -> Void)?
+        stage.animate = { _, _, _, animations, completion in
+            animations()
+            heldCompletion = completion
+        }
+
+        stage.push(b); _ = sink.drain()
+        XCTAssertNotNil(heldCompletion, "a's exit phase is in flight")
+
+        disappear(stage)
+        // a's disappearance was already opened by the transition's step 3, so
+        // the container's own disappearance adds nothing to it — what matters
+        // is that b, the DESTINATION, receives nothing: its view isn't
+        // installed and it never appeared. (Targeting `top` sent b a full
+        // spurious disappear pair here.)
+        XCTAssertFalse(sink.log.contains { $0.hasPrefix("b.") },
+                       "the not-yet-installed destination must receive no appearance calls")
     }
 
     // MARK: - D9: a push into an off-screen container defers appearance
