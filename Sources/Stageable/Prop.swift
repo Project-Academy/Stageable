@@ -105,13 +105,21 @@ public struct Prop {
         //
         // Staying in one space is immune to both. A prop travels off its own
         // superview, which for a scene filling the stage is the stage.
-        let screen = view.superview?.bounds ?? UIScreen.main.bounds
+        // Superview → window → screen. `UIScreen.main.bounds` is the LAST
+        // resort because it is orientation-naive: on an iPad in landscape it
+        // still reads portrait (1032 wide, not 1194), which is narrower than
+        // the laid-out frame of any trailing-edge view. That made `.right`
+        // negative for a top-right button — it flew in from the LEFT.
+        let container = view.superview?.bounds ?? view.window?.bounds ?? UIScreen.main.bounds
         let frame = view.frame
 
-        let toLeft = -(frame.maxX)
-        let toRight = screen.width - frame.minX
-        let toTop = -(frame.maxY)
-        let toBottom = screen.height - frame.minY
+        // A prop travels toward its named edge or it does not travel: a
+        // measurement that came out backwards means the container is wrong,
+        // and standing still is always better than sliding the wrong way.
+        let toLeft = min(0, -(frame.maxX))
+        let toRight = max(0, container.width - frame.minX)
+        let toTop = min(0, -(frame.maxY))
+        let toBottom = max(0, container.height - frame.minY)
 
         switch direction {
         case .top:         return CGAffineTransform(translationX: 0, y: toTop)
