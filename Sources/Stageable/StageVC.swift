@@ -422,6 +422,35 @@ open class StageVC: UIViewController {
             self.enterThroughSeam(from: outgoing, incoming: incoming, adopting: adopting,
                                   chromeEntering: chromeRiding.present, completion: completion)
         }
+        // A new screen is laid out while the exit plays, out of sight, so the seam has nothing
+        // left to build: laid out at the seam, a big screen held the stage blank between the phases
+        // (a textbook shelf: 0.2 s on an A10). It waits for the exit's last staggered prop to start
+        // — each starts from the main thread, and held there it would start late and stretch the
+        // exit — after which the render server moves everything and the main thread is free.
+        if adopting {
+            let lastStart = parkingMoves.map(\.delay).max() ?? 0
+            DispatchQueue.main.asyncAfter(deadline: .now() + lastStart + Self.rehearsalMargin) { [weak self] in
+                self?.rehearse(incoming)
+            }
+        }
+    }
+
+    /// After the exit's last prop has started: a frame or two for its start to be committed.
+    private static let rehearsalMargin: TimeInterval = 0.03
+
+    /// Screens laid out ahead of their seam, waiting there unseen.
+    private var rehearsed: Set<ObjectIdentifier> = []
+
+    /** Lays out a screen about to enter, hidden beneath everything, at the stage's size. Only a
+        screen new to the stage: a covered one's props are parked, and laying it out under those
+        transforms would corrupt the frames its restore is measured from. */
+    private func rehearse(_ screen: any Stageable) {
+        guard screen.view.superview == nil, ledger[ObjectIdentifier(screen)] == nil else { return }
+        screen.view.isHidden = true
+        view.insertSubview(screen.view, at: 0)
+        screen.view.frame = view.bounds
+        screen.view.layoutIfNeeded()
+        rehearsed.insert(ObjectIdentifier(screen))
     }
 
     /// A7 steps 6–9: the seam, the enter phase, the landing.
@@ -433,6 +462,7 @@ open class StageVC: UIViewController {
         // before layout, or a covered screen's parked transform corrupts the
         // frame the new park distance is measured from.
         view.addSubview(incoming.view)
+        if rehearsed.remove(ObjectIdentifier(incoming)) != nil { incoming.view.isHidden = false }
         onScreen = incoming
         incoming.view.transform = .identity
         incoming.view.frame = view.bounds
@@ -471,6 +501,7 @@ open class StageVC: UIViewController {
         for screen in screens {
             screen.willExit(.removed)
             screen.view.removeFromSuperview()
+            if rehearsed.remove(ObjectIdentifier(screen)) != nil { screen.view.isHidden = false }
             screen.willMove(toParent: nil)
             screen.removeFromParent()
             screen.didExit(.removed)

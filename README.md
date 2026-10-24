@@ -227,6 +227,8 @@ Each of these was found in shipped code, most in more than one app.
 
 A phase ends when its **last animator completes** — never on a timer. A phase with **no animators takes no time**: a propless→propless transition runs synchronously.
 
+**A new screen is laid out during the exit, unseen.** Once the exit's last staggered prop has started (each starts from the main thread, so the wait keeps the stagger on time), a screen new to the stage is added hidden beneath everything at the stage's size and laid out. The render server is moving the exit by then, so the main thread is free, and the seam's layout finds nothing left to do. Laid out at the seam instead, a big screen held the stage blank between the phases (a textbook shelf: ~0.2 s on an A10). A covered screen coming back is not laid out early: its props are parked. The view is hidden, so no appearance calls move; SwiftUI content in it may see `onAppear` a little before the seam.
+
 ## The callback order
 
 Fixed here, not decided by the implementation — `StageVCAppearanceTests` log-matches every scenario below against this table.
