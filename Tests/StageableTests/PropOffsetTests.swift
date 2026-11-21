@@ -86,4 +86,48 @@ final class PropOffsetTests: XCTestCase {
         let t = Prop(card, from: .bottom).offScreenTransform()
         XCTAssertGreaterThanOrEqual(t.ty, 0)
     }
+
+    /// A stage set inside its host, under a status bar: off the stage's top
+    /// edge is still in sight, so the prop travels to the window's.
+    func testTopReachesTheWindowsEdgeWhenTheHostSitsBelowIt() {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 1194, height: 834))
+        let host = UIView(frame: CGRect(x: 0, y: 24, width: 1194, height: 810))
+        let button = UIView(frame: CGRect(x: 1130, y: 20, width: 44, height: 44))
+        window.addSubview(host)
+        host.addSubview(button)
+        let t = Prop(button, from: .top).offScreenTransform()
+        // Its foot lands on the window's top edge, 24 above the host's.
+        XCTAssertEqual(button.frame.maxY + t.ty, -24, accuracy: 0.001)
+        let right = Prop(button, from: .right).offScreenTransform()
+        XCTAssertEqual(button.frame.minX + right.tx, 1194, accuracy: 0.001)
+    }
+
+    /// An ancestor already moved away by a transform does not change the
+    /// measure: the travel is the same as with it at rest.
+    func testADisplacedAncestorDoesNotChangeTheTravel() {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 1194, height: 834))
+        let host = UIView(frame: CGRect(x: 0, y: 24, width: 1194, height: 810))
+        let button = UIView(frame: CGRect(x: 1130, y: 20, width: 44, height: 44))
+        window.addSubview(host)
+        host.addSubview(button)
+        let resting = Prop(button, from: .top).offScreenTransform()
+        host.transform = CGAffineTransform(translationX: 0, y: -900)
+        let displaced = Prop(button, from: .top).offScreenTransform()
+        XCTAssertEqual(resting.ty, displaced.ty, accuracy: 0.001)
+        XCTAssertLessThan(displaced.ty, 0)
+    }
+
+    /// A prop inside a scrolled view travels by where it is on screen.
+    func testAScrolledHostIsMeasuredWhereItShows() {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 1194, height: 834))
+        let scroll = UIScrollView(frame: window.bounds)
+        scroll.contentSize = CGSize(width: 1194, height: 3000)
+        scroll.contentOffset = CGPoint(x: 0, y: 500)
+        let card = UIView(frame: CGRect(x: 0, y: 600, width: 400, height: 100))
+        window.addSubview(scroll)
+        scroll.addSubview(card)
+        let t = Prop(card, from: .top).offScreenTransform()
+        // On screen its foot is at 200; it travels that far to the top edge.
+        XCTAssertEqual(t.ty, -200, accuracy: 0.001)
+    }
 }

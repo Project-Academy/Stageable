@@ -120,13 +120,22 @@ public struct Prop {
         let container = view.superview?.bounds ?? view.window?.bounds ?? UIScreen.main.bounds
         let frame = view.frame
 
+        // In a window, the edges it travels to are the WINDOW's, set in the
+        // superview's space: a stage that sits inside its host (Books' is
+        // under the status bar) has a top edge that is still in sight, and a
+        // prop sent only that far waits there half out. The window's edges are
+        // found by layout alone (each ancestor's centre, size and scroll
+        // offset), so a displaced ancestor's transform stays out of it.
+        let edges = Self.windowEdges(inSuperviewOf: view)
+            ?? CGRect(origin: .zero, size: container.size)
+
         // A prop travels toward its named edge or it does not travel: a
         // measurement that came out backwards means the container is wrong,
         // and standing still is always better than sliding the wrong way.
-        let toLeft = min(0, -(frame.maxX))
-        let toRight = max(0, container.width - frame.minX)
-        let toTop = min(0, -(frame.maxY))
-        let toBottom = max(0, container.height - frame.minY)
+        let toLeft = min(0, edges.minX - frame.maxX)
+        let toRight = max(0, edges.maxX - frame.minX)
+        let toTop = min(0, edges.minY - frame.maxY)
+        let toBottom = max(0, edges.maxY - frame.minY)
 
         switch direction {
         case .top:         return CGAffineTransform(translationX: 0, y: toTop)
@@ -138,5 +147,24 @@ public struct Prop {
         case .bottomLeft:  return CGAffineTransform(translationX: toLeft, y: toBottom)
         case .bottomRight: return CGAffineTransform(translationX: toRight, y: toBottom)
         }
+    }
+
+    /// The window's bounds in the space `view.frame` is measured in, by layout
+    /// alone; nil for a view that is not in a window.
+    private static func windowEdges(inSuperviewOf view: UIView) -> CGRect? {
+        guard let window = view.window, let parent = view.superview else { return nil }
+        // Where the superview's own space starts in the window.
+        var start = CGPoint(x: -parent.bounds.origin.x, y: -parent.bounds.origin.y)
+        var node: UIView? = parent
+        while let current = node, current !== window {
+            start.x += current.center.x - current.bounds.width * current.layer.anchorPoint.x
+            start.y += current.center.y - current.bounds.height * current.layer.anchorPoint.y
+            if let above = current.superview, above !== window {
+                start.x -= above.bounds.origin.x
+                start.y -= above.bounds.origin.y
+            }
+            node = current.superview
+        }
+        return CGRect(x: -start.x, y: -start.y, width: window.bounds.width, height: window.bounds.height)
     }
 }
