@@ -34,6 +34,9 @@ public struct Prop {
     public let transform: CGAffineTransform?
     /// Seconds to wait before this prop's animation starts, creating a stagger effect.
     public let delay: TimeInterval
+    /// Seconds to wait before this prop leaves, where that differs from its wait coming in: two props whose paths
+    /// cross come in one after the other and leave in the opposite order. Nil leaves after ``delay``.
+    public let exitDelay: TimeInterval?
     /// App-readable metadata: whether this prop belongs to the screen's
     /// toggleable overlay chrome (e.g. a focus mode that hides everything but
     /// the content). **The engine never reads this** — it exists so a screen's
@@ -53,13 +56,15 @@ public struct Prop {
        - view: The view to animate.
        - direction: The edge the view enters from.
        - delay: Stagger delay in seconds. Defaults to `0`.
+       - exitDelay: The delay on the way out, where it differs. Defaults to `delay`.
        - overlay: App-readable overlay tag; not read by the engine. Defaults to `true`.
      */
-    public init(_ view: UIView, from direction: Direction, delay: TimeInterval = 0, overlay: Bool = true) {
+    public init(_ view: UIView, from direction: Direction, delay: TimeInterval = 0, exitDelay: TimeInterval? = nil, overlay: Bool = true) {
         self.view = view
         self.direction = direction
         self.transform = nil
         self.delay = delay
+        self.exitDelay = exitDelay
         self.overlay = overlay
     }
 
@@ -69,13 +74,15 @@ public struct Prop {
        - view: The view to animate.
        - transform: The transform applied when the view is off-screen.
        - delay: Stagger delay in seconds. Defaults to `0`.
+       - exitDelay: The delay on the way out, where it differs. Defaults to `delay`.
        - overlay: App-readable overlay tag; not read by the engine. Defaults to `true`.
      */
-    public init(_ view: UIView, transform: CGAffineTransform, delay: TimeInterval = 0, overlay: Bool = true) {
+    public init(_ view: UIView, transform: CGAffineTransform, delay: TimeInterval = 0, exitDelay: TimeInterval? = nil, overlay: Bool = true) {
         self.view = view
         self.direction = nil
         self.transform = transform
         self.delay = delay
+        self.exitDelay = exitDelay
         self.overlay = overlay
     }
 

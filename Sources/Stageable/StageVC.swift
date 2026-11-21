@@ -324,7 +324,7 @@ open class StageVC: UIViewController {
         guard ledger[key] == nil else { return [] }
         var moves: [Move] = []
         ledger[key] = screen.props.map { prop in
-            moves.append(Move(view: prop.view, target: prop.offScreenTransform(), delay: prop.delay))
+            moves.append(Move(view: prop.view, target: prop.offScreenTransform(), delay: prop.exitDelay ?? prop.delay))
             return ParkRecord(view: prop.view, restore: prop.view.transform, delay: prop.delay)
         }
         return moves
