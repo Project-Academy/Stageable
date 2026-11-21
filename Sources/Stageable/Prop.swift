@@ -44,6 +44,9 @@ public struct Prop {
     /// keeping a parallel list that can drift from it.
     public let overlay: Bool
 
+    /// How far past its edge a prop is sent, so nothing it draws outside its frame is left in sight.
+    public static let clearance: CGFloat = 40
+
     /// A screen edge (or corner) that a ``Prop`` slides in from and out toward.
     public enum Direction {
         case top, bottom, left, right
@@ -132,10 +135,14 @@ public struct Prop {
         // A prop travels toward its named edge or it does not travel: a
         // measurement that came out backwards means the container is wrong,
         // and standing still is always better than sliding the wrong way.
-        let toLeft = min(0, edges.minX - frame.maxX)
-        let toRight = max(0, edges.maxX - frame.minX)
-        let toTop = min(0, edges.minY - frame.maxY)
-        let toBottom = max(0, edges.maxY - frame.minY)
+        // It goes a little past the edge: what a view draws outside its frame (a
+        // shadow, a badge on its corner, a button that overhangs an unclipped
+        // column) is otherwise left as a sliver at the edge until the phase ends.
+        let past = Self.clearance
+        let toLeft = min(0, edges.minX - frame.maxX - past)
+        let toRight = max(0, edges.maxX - frame.minX + past)
+        let toTop = min(0, edges.minY - frame.maxY - past)
+        let toBottom = max(0, edges.maxY - frame.minY + past)
 
         switch direction {
         case .top:         return CGAffineTransform(translationX: 0, y: toTop)

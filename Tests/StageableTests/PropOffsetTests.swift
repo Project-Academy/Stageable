@@ -32,8 +32,8 @@ final class PropOffsetTests: XCTestCase {
         let t = Prop(button, from: .right).offScreenTransform()
         XCTAssertGreaterThan(t.tx, 0, "`.right` translated the view LEFT")
         XCTAssertEqual(t.ty, 0, accuracy: 0.001)
-        // Its leading edge lands exactly on the host's trailing edge.
-        XCTAssertEqual(button.frame.minX + t.tx, 1194, accuracy: 0.001)
+        // Its leading edge lands the clearance past the host's trailing edge.
+        XCTAssertEqual(button.frame.minX + t.tx, 1194 + Prop.clearance, accuracy: 0.001)
     }
 
     /// The mirror case, so a sign flip can't pass both tests.
@@ -42,8 +42,8 @@ final class PropOffsetTests: XCTestCase {
         _ = host
         let t = Prop(button, from: .left).offScreenTransform()
         XCTAssertLessThan(t.tx, 0)
-        // Its trailing edge lands exactly on the host's leading edge.
-        XCTAssertEqual(button.frame.maxX + t.tx, 0, accuracy: 0.001)
+        // Its trailing edge lands the clearance past the host's leading edge.
+        XCTAssertEqual(button.frame.maxX + t.tx, -Prop.clearance, accuracy: 0.001)
     }
 
     /// A view measured before Auto Layout has positioned it. The travel is
@@ -97,9 +97,9 @@ final class PropOffsetTests: XCTestCase {
         host.addSubview(button)
         let t = Prop(button, from: .top).offScreenTransform()
         // Its foot lands on the window's top edge, 24 above the host's.
-        XCTAssertEqual(button.frame.maxY + t.ty, -24, accuracy: 0.001)
+        XCTAssertEqual(button.frame.maxY + t.ty, -24 - Prop.clearance, accuracy: 0.001)
         let right = Prop(button, from: .right).offScreenTransform()
-        XCTAssertEqual(button.frame.minX + right.tx, 1194, accuracy: 0.001)
+        XCTAssertEqual(button.frame.minX + right.tx, 1194 + Prop.clearance, accuracy: 0.001)
     }
 
     /// An ancestor already moved away by a transform does not change the
@@ -128,6 +128,6 @@ final class PropOffsetTests: XCTestCase {
         scroll.addSubview(card)
         let t = Prop(card, from: .top).offScreenTransform()
         // On screen its foot is at 200; it travels that far to the top edge.
-        XCTAssertEqual(t.ty, -200, accuracy: 0.001)
+        XCTAssertEqual(t.ty, -200 - Prop.clearance, accuracy: 0.001)
     }
 }
