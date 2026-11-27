@@ -451,6 +451,7 @@ open class StageVC: UIViewController {
         screen.view.frame = view.bounds
         screen.view.layoutIfNeeded()
         rehearsed.insert(ObjectIdentifier(screen))
+        screen.didRehearse()
     }
 
     /// A7 steps 6–9: the seam, the enter phase, the landing.

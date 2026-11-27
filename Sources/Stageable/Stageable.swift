@@ -76,6 +76,11 @@ public protocol Stageable: UIViewController {
 
     /// The departure has landed, with the same `exit` as ``willExit(_:)``.
     func didExit(_ exit: Exit)
+
+    /// The screen has been laid out ahead of its entrance, hidden at the stage's size, while the outgoing screen
+    /// leaves. Build here what the entrance would otherwise build at the seam, where the main thread holds the stage
+    /// still. Not called for the first screen, a covered screen coming back, or a screen already on the stage.
+    func didRehearse()
 }
 
 public extension Stageable {
@@ -83,6 +88,7 @@ public extension Stageable {
     func didEnter() { }
     func willExit(_ exit: Exit) { }
     func didExit(_ exit: Exit) { }
+    func didRehearse() { }
 
     /// The ``StageVC`` this screen is on, if any.
     ///
