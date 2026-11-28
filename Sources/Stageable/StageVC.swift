@@ -51,10 +51,12 @@ open class StageVC: UIViewController {
     var animate: (_ duration: TimeInterval, _ delay: TimeInterval, _ bounce: CGFloat,
                   _ animations: @escaping () -> Void,
                   _ completion: @escaping () -> Void) -> Void = { duration, delay, bounce, animations, completion in
-        let animator = UIViewPropertyAnimator(
-            duration: duration,
-            timingParameters: UISpringTimingParameters(duration: duration, bounce: bounce,
-                                                       initialVelocity: .zero))
+        // An exit (no bounce) is an ease-in of exactly its duration: a spring's completion waits for it to settle,
+        // well after the motion has ended, and the stage sat blank between the phases for that long (~0.5 s).
+        let timing: UITimingCurveProvider = bounce == 0
+            ? UICubicTimingParameters(animationCurve: .easeIn)
+            : UISpringTimingParameters(duration: duration, bounce: bounce, initialVelocity: .zero)
+        let animator = UIViewPropertyAnimator(duration: duration, timingParameters: timing)
         animator.addAnimations(animations)
         animator.addCompletion { _ in completion() }
         animator.startAnimation(afterDelay: delay)
